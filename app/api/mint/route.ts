@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     // Do not include 'https://', just the domain name.
     const result = await authClient.verifyJwt({ 
         token, 
-        domain: 'viral-strain.vercel.app' 
+        domain: 'virus-orcin.vercel.app' 
     });
     const fid = result.sub;
 
