@@ -86,6 +86,17 @@ export default function Home() {
       });
 
       const [address] = await walletClient.requestAddresses();
+
+      // === 🛑 NEW: FORCE NETWORK SWITCH ===
+      try {
+        await walletClient.switchChain({ id: baseSepolia.id });
+      } catch (e) {
+        console.warn("Network switch failed or rejected. Attempting to proceed...", e);
+        // We continue because some wallets might already be on the right chain 
+        // but throw an error anyway (quirk of some mobile wallets)
+      }
+      // ====================================
+
       const { token } = await sdk.quickAuth.getToken();
 
       const response = await fetch('/api/mint', {
@@ -114,7 +125,12 @@ export default function Home() {
 
     } catch (e: any) {
       console.error(e);
-      setErrorMsg(e.message || "Something went wrong");
+      // Nice user-friendly error messages
+      let msg = e.message || "Something went wrong";
+      if (msg.includes("User rejected")) msg = "Transaction Rejected";
+      if (msg.includes("chain")) msg = "Wrong Network. Switch to Base Sepolia.";
+      
+      setErrorMsg(msg);
       setStatus('error');
     }
   }, [status]);
