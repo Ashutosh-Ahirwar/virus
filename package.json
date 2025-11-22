@@ -9,9 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@farcaster/miniapp-sdk": "^0.2.1",
+    "@farcaster/quick-auth": "^0.0.8",
     "next": "16.0.3",
     "react": "19.2.0",
-    "react-dom": "19.2.0"
+    "react-dom": "19.2.0",
+    "viem": "^2.39.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
