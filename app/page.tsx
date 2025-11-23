@@ -30,8 +30,9 @@ export default function Home() {
   const [txHash, setTxHash] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [userFid, setUserFid] = useState<number>(0);
+  const [testFidInput, setTestFidInput] = useState<string>('100000'); // ADDED STATE FOR TEST FID
 
-  // 2. INITIALIZATION
+  // 2. INITIALIZATION (Uses real FID for initial check)
   useEffect(() => {
     const init = async () => {
       try {
@@ -69,9 +70,16 @@ export default function Home() {
     init();
   }, []);
 
-  // 3. MINT HANDLER
+  // 3. MINT HANDLER (Uses TEST FID)
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
+    
+    const testFid = parseInt(testFidInput);
+    if (isNaN(testFid) || testFid < 1) {
+        setErrorMsg("Please enter a valid Test FID.");
+        setStatus('error');
+        return;
+    }
     
     try {
       setStatus('loading');
@@ -87,22 +95,22 @@ export default function Home() {
 
       const [address] = await walletClient.requestAddresses();
 
-      // === 🛑 NEW: FORCE NETWORK SWITCH ===
+      // NEW: Force chain switch (needed since we are on Testnet)
       try {
         await walletClient.switchChain({ id: baseSepolia.id });
       } catch (e) {
         console.warn("Network switch failed or rejected. Attempting to proceed...", e);
-        // We continue because some wallets might already be on the right chain 
-        // but throw an error anyway (quirk of some mobile wallets)
       }
-      // ====================================
 
-      const { token } = await sdk.quickAuth.getToken();
-
-      const response = await fetch('/api/mint', {
+      // --- CALL TEST API (/api/test-sign) ---
+      // We send the arbitrary Test FID instead of the verified Quick Auth token
+      const response = await fetch('/api/test-sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, userAddress: address })
+        body: JSON.stringify({ 
+          testFid, // NEW PARAMETER
+          userAddress: address 
+        })
       });
 
       if (!response.ok) {
@@ -112,6 +120,7 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
+      // Submit to Blockchain
       const hash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS,
         abi: ABI,
@@ -125,15 +134,14 @@ export default function Home() {
 
     } catch (e: any) {
       console.error(e);
-      // Nice user-friendly error messages
       let msg = e.message || "Something went wrong";
-      if (msg.includes("User rejected")) msg = "Transaction Rejected";
+      if (msg.includes("ContractPaused")) msg = "Contract is Paused!";
       if (msg.includes("chain")) msg = "Wrong Network. Switch to Base Sepolia.";
       
       setErrorMsg(msg);
       setStatus('error');
     }
-  }, [status]);
+  }, [status, testFidInput]); // Added dependency
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono overflow-hidden">
@@ -146,13 +154,13 @@ export default function Home() {
         
         {/* Header */}
         <div className="text-center mb-10 space-y-2">
-          <div className="inline-block px-3 py-1 border border-green-500/30 rounded-full bg-green-500/10 text-green-400 text-xs tracking-widest uppercase mb-4">
-            OUTBREAK CONFIRMED
+          <div className="inline-block px-3 py-1 border border-red-500/30 rounded-full bg-red-500/10 text-red-400 text-xs tracking-widest uppercase mb-4">
+            TEST MODE: INSECURE
           </div>
           <h1 className="text-5xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-500 drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">
             VIRAL STRAIN
           </h1>
-          <p className="text-gray-500 text-sm uppercase tracking-widest">SURVIVAL PROBABILITY: UNKNOWN</p>
+          <p className="text-gray-500 text-sm uppercase tracking-widest">SURVIVAL PROBABILITY: {status === 'minted' ? '99%' : 'UNKNOWN'}</p>
         </div>
 
         {/* Main Card */}
@@ -184,7 +192,7 @@ export default function Home() {
               {status === 'loading' && (
                 <div className="space-y-2">
                   <h3 className="text-xl font-bold text-yellow-400 animate-pulse">PROCESSING...</h3>
-                  <p className="text-xs text-gray-400">Verifying DNA Signature</p>
+                  <p className="text-xs text-gray-400">Requesting Test Voucher</p>
                 </div>
               )}
 
@@ -192,16 +200,16 @@ export default function Home() {
                 <div className="space-y-3">
                   <h3 className="text-2xl font-bold text-green-400 tracking-tight">ALREADY INFECTED</h3>
                   <div className="inline-block px-4 py-1 bg-green-900/30 border border-green-500/30 rounded text-green-300 font-mono text-sm">
-                    FID: {userFid}
+                    Your Real FID: {userFid}
                   </div>
-                  <p className="text-xs text-gray-500">Strain deployment confirmed.</p>
+                  <p className="text-xs text-gray-500">Deployment confirmed. Ready for Production.</p>
                 </div>
               )}
 
               {status === 'success' && (
                 <div className="space-y-4">
                   <h3 className="text-2xl font-bold text-white tracking-tight">MINT COMPLETE</h3>
-                  <p className="text-sm text-gray-400">Your unique strain has been generated.</p>
+                  <p className="text-sm text-gray-400">Test FID {testFidInput} generated a unique strain.</p>
                   <a 
                     href={`https://sepolia.basescan.org/tx/${txHash}`}
                     target="_blank"
@@ -230,15 +238,29 @@ export default function Home() {
 
               {status === 'idle' && (
                 <div className="space-y-4">
-                  <button
-                    onClick={handleMint}
-                    className="group relative w-full py-4 px-6 bg-green-600 hover:bg-green-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden"
-                  >
-                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
-                    <span className="relative flex items-center justify-center gap-2">
-                      MINT STRAIN
-                    </span>
-                  </button>
+                    {/* Input Field */}
+                    <input
+                        type="number"
+                        value={testFidInput}
+                        onChange={(e) => setTestFidInput(e.target.value)}
+                        placeholder="Test FID (e.g., 100001)"
+                        className="w-full py-2 px-4 bg-gray-800 text-green-400 border border-green-700/50 rounded-lg text-center font-mono placeholder-gray-500 focus:ring-green-500 focus:border-green-500"
+                        min="1"
+                    />
+                    
+                    {/* Button */}
+                    <button
+                        onClick={handleMint}
+                        className="group relative w-full py-4 px-6 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden"
+                    >
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
+                        <span className="relative flex items-center justify-center gap-2">
+                            TEST NEXT STRAIN
+                        </span>
+                    </button>
+                    <p className="text-xs text-gray-500">
+                        Enter different numbers to see visual variations.
+                    </p>
                 </div>
               )}
             </div>
