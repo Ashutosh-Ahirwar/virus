@@ -22,17 +22,32 @@ const ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'fid', type: 'uint256' }],
     outputs: [{ name: '', type: 'bool' }]
+  },
+  {
+    name: 'tokenURI', // Added for image fetching
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'tokenId', type: 'uint256' }],
+    outputs: [{ name: '', type: 'string' }]
   }
 ] as const;
+
+// Helper to decode the nested Base64 strings from the tokenURI
+const decodeTokenUri = (uri: string): string => {
+    const base64Json = uri.split(',')[1];
+    const decodedJson = JSON.parse(atob(base64Json));
+    return decodedJson.image; // Returns the final data:image/svg+xml;base64,... string
+};
 
 export default function Home() {
   const [status, setStatus] = useState<'loading' | 'idle' | 'minted' | 'error' | 'success'>('loading');
   const [txHash, setTxHash] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [userFid, setUserFid] = useState<number>(0);
-  const [testFidInput, setTestFidInput] = useState<string>('100000'); // ADDED STATE FOR TEST FID
+  const [testFidInput, setTestFidInput] = useState<string>('100000'); 
+  const [nftImageUrl, setNftImageUrl] = useState<string | null>(null); // NEW STATE FOR IMAGE
 
-  // 2. INITIALIZATION (Uses real FID for initial check)
+  // 2. INITIALIZATION
   useEffect(() => {
     const init = async () => {
       try {
@@ -40,15 +55,9 @@ export default function Home() {
         const fid = context.user.fid ?? 0; 
         setUserFid(fid);
 
-        const publicClient = createPublicClient({
-          chain: baseSepolia,
-          transport: http()
-        });
-
+        const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
         const hasMinted = await publicClient.readContract({
-          address: CONTRACT_ADDRESS,
-          abi: ABI,
-          functionName: 'hasMinted',
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted',
           args: [BigInt(fid)]
         });
 
@@ -70,7 +79,24 @@ export default function Home() {
     init();
   }, []);
 
-  // 3. MINT HANDLER (Uses TEST FID)
+  // 3. FETCH IMAGE HELPER
+  const fetchNftImage = useCallback(async (tokenId: bigint) => {
+    const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+    
+    // Read tokenURI from the blockchain
+    const uri = await publicClient.readContract({
+        address: CONTRACT_ADDRESS,
+        abi: ABI,
+        functionName: 'tokenURI',
+        args: [tokenId]
+    });
+    
+    // Decode the nested Base64 string to get the final SVG URL
+    setNftImageUrl(decodeTokenUri(uri));
+  }, []);
+
+
+  // 4. MINT HANDLER
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
     
@@ -89,30 +115,19 @@ export default function Home() {
       if (!provider) throw new Error("No Wallet Found");
       
       const walletClient = createWalletClient({
-        chain: baseSepolia,
-        transport: custom(provider as any)
+        chain: baseSepolia, transport: custom(provider as any)
       });
 
       const [address] = await walletClient.requestAddresses();
+      
+      try { await walletClient.switchChain({ id: baseSepolia.id }); } catch (e) { console.warn("Switch failed", e); }
 
-      // NEW: Force chain switch (needed since we are on Testnet)
-      try {
-        await walletClient.switchChain({ id: baseSepolia.id });
-      } catch (e) {
-        console.warn("Network switch failed or rejected. Attempting to proceed...", e);
-      }
-
-      // --- CALL TEST API (/api/test-sign) ---
-      // We send the arbitrary Test FID instead of the verified Quick Auth token
+      // --- 1. CALL TEST API ---
       const response = await fetch('/api/test-sign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          testFid, // NEW PARAMETER
-          userAddress: address 
-        })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ testFid, userAddress: address })
       });
-
+      
       if (!response.ok) {
         const errData = await response.json();
         throw new Error(errData.error || "Verification Failed");
@@ -120,15 +135,15 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
-      // Submit to Blockchain
+      // --- 2. MINT ---
       const hash = await walletClient.writeContract({
-        address: CONTRACT_ADDRESS,
-        abi: ABI,
-        functionName: 'mint',
-        args: [BigInt(fid), signature],
-        account: address
+        address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
+        args: [BigInt(fid), signature], account: address
       });
 
+      // --- 3. FETCH IMAGE ON SUCCESS ---
+      await fetchNftImage(BigInt(fid)); // Fetch the visual data immediately!
+      
       setTxHash(hash);
       setStatus('success');
 
@@ -141,7 +156,7 @@ export default function Home() {
       setErrorMsg(msg);
       setStatus('error');
     }
-  }, [status, testFidInput]); // Added dependency
+  }, [status, testFidInput, fetchNftImage]);
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono overflow-hidden">
@@ -170,20 +185,23 @@ export default function Home() {
           
           <div className="relative bg-gray-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
             
-            {/* VISUALIZER CIRCLE */}
+            {/* VISUALIZER CIRCLE / IMAGE DISPLAY */}
             <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
-              {/* Animated Rings */}
-              <div className={`absolute inset-0 border-2 border-dashed rounded-full ${status === 'loading' ? 'border-yellow-500/50 animate-spin-slow' : 'border-green-500/30 animate-spin-slower'}`}></div>
-              <div className={`absolute inset-4 border border-green-500/20 rounded-full ${status === 'loading' ? 'animate-ping' : ''}`}></div>
-              
-              {/* Icon Status */}
-              <div className="text-6xl z-10 transition-transform duration-500 hover:scale-110 cursor-default">
-                {status === 'loading' && '⏳'}
-                {status === 'minted' && '🧬'}
-                {status === 'success' && '🧪'}
-                {status === 'error' && '⚠️'}
-                {status === 'idle' && '🦠'}
-              </div>
+              {nftImageUrl ? (
+                 <img src={nftImageUrl} alt="Minted NFT Strain" className="w-full h-full object-cover rounded-full border border-green-500" />
+              ) : (
+                <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
+                    <div className={`absolute inset-0 border-2 border-dashed rounded-full ${status === 'loading' ? 'border-yellow-500/50 animate-spin-slow' : 'border-green-500/30 animate-spin-slower'}`}></div>
+                    <div className={`absolute inset-4 border border-green-500/20 rounded-full ${status === 'loading' ? 'animate-ping' : ''}`}></div>
+                    <div className="text-6xl z-10 transition-transform duration-500 hover:scale-110 cursor-default">
+                        {status === 'loading' && '⏳'}
+                        {status === 'minted' && '🧬'}
+                        {status === 'success' && '🧪'}
+                        {status === 'error' && '⚠️'}
+                        {status === 'idle' && '🦠'}
+                    </div>
+                </div>
+              )}
             </div>
 
             {/* STATUS MESSAGES & BUTTONS */}
@@ -208,8 +226,8 @@ export default function Home() {
 
               {status === 'success' && (
                 <div className="space-y-4">
-                  <h3 className="text-2xl font-bold text-white tracking-tight">MINT COMPLETE</h3>
-                  <p className="text-sm text-gray-400">Test FID {testFidInput} generated a unique strain.</p>
+                  <h3 className="text-2xl font-bold text-white tracking-tight">STRAIN GENERATED!</h3>
+                  <p className="text-sm text-gray-400">Test FID {testFidInput} produced a unique mutation.</p>
                   <a 
                     href={`https://sepolia.basescan.org/tx/${txHash}`}
                     target="_blank"
