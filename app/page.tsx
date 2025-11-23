@@ -24,7 +24,7 @@ const ABI = [
     outputs: [{ name: '', type: 'bool' }]
   },
   {
-    name: 'tokenURI', // Added for image fetching
+    name: 'tokenURI',
     type: 'function',
     stateMutability: 'view',
     inputs: [{ name: 'tokenId', type: 'uint256' }],
@@ -34,9 +34,14 @@ const ABI = [
 
 // Helper to decode the nested Base64 strings from the tokenURI
 const decodeTokenUri = (uri: string): string => {
-    const base64Json = uri.split(',')[1];
-    const decodedJson = JSON.parse(atob(base64Json));
-    return decodedJson.image; // Returns the final data:image/svg+xml;base64,... string
+    try {
+        const base64Json = uri.split(',')[1];
+        const decodedJson = JSON.parse(atob(base64Json));
+        return decodedJson.image; 
+    } catch (e) {
+        console.error("Error decoding URI", e);
+        return "";
+    }
 };
 
 export default function Home() {
@@ -45,7 +50,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [userFid, setUserFid] = useState<number>(0);
   const [testFidInput, setTestFidInput] = useState<string>('100000'); 
-  const [nftImageUrl, setNftImageUrl] = useState<string | null>(null); // NEW STATE FOR IMAGE
+  const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
 
   // 2. INITIALIZATION
   useEffect(() => {
@@ -81,18 +86,15 @@ export default function Home() {
 
   // 3. FETCH IMAGE HELPER
   const fetchNftImage = useCallback(async (tokenId: bigint) => {
-    const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
-    
-    // Read tokenURI from the blockchain
-    const uri = await publicClient.readContract({
-        address: CONTRACT_ADDRESS,
-        abi: ABI,
-        functionName: 'tokenURI',
-        args: [tokenId]
-    });
-    
-    // Decode the nested Base64 string to get the final SVG URL
-    setNftImageUrl(decodeTokenUri(uri));
+    try {
+        const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+        const uri = await publicClient.readContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [tokenId]
+        });
+        setNftImageUrl(decodeTokenUri(uri));
+    } catch (e) {
+        console.warn("Could not fetch image yet (might be indexing)", e);
+    }
   }, []);
 
 
@@ -122,7 +124,7 @@ export default function Home() {
       
       try { await walletClient.switchChain({ id: baseSepolia.id }); } catch (e) { console.warn("Switch failed", e); }
 
-      // --- 1. CALL TEST API ---
+      // --- CALL TEST API ---
       const response = await fetch('/api/test-sign', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ testFid, userAddress: address })
@@ -135,14 +137,14 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
-      // --- 2. MINT ---
+      // --- WRITE TO CONTRACT ---
       const hash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
         args: [BigInt(fid), signature], account: address
       });
 
-      // --- 3. FETCH IMAGE ON SUCCESS ---
-      await fetchNftImage(BigInt(fid)); // Fetch the visual data immediately!
+      // --- FETCH IMAGE ---
+      await fetchNftImage(BigInt(fid));
       
       setTxHash(hash);
       setStatus('success');
@@ -180,7 +182,6 @@ export default function Home() {
 
         {/* Main Card */}
         <div className="relative group">
-          {/* Glowing Border Effect */}
           <div className="absolute -inset-0.5 bg-gradient-to-r from-green-600 to-emerald-600 rounded-2xl blur opacity-30 group-hover:opacity-75 transition duration-1000"></div>
           
           <div className="relative bg-gray-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
@@ -188,9 +189,9 @@ export default function Home() {
             {/* VISUALIZER CIRCLE / IMAGE DISPLAY */}
             <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
               {nftImageUrl ? (
-                 <img src={nftImageUrl} alt="Minted NFT Strain" className="w-full h-full object-cover rounded-full border border-green-500" />
+                 <img src={nftImageUrl} alt="Minted NFT Strain" className="w-full h-full object-cover rounded-full border-2 border-green-500/50 shadow-[0_0_20px_rgba(74,222,128,0.3)]" />
               ) : (
-                <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
+                <div className="relative w-40 h-40 mx-auto flex items-center justify-center">
                     <div className={`absolute inset-0 border-2 border-dashed rounded-full ${status === 'loading' ? 'border-yellow-500/50 animate-spin-slow' : 'border-green-500/30 animate-spin-slower'}`}></div>
                     <div className={`absolute inset-4 border border-green-500/20 rounded-full ${status === 'loading' ? 'animate-ping' : ''}`}></div>
                     <div className="text-6xl z-10 transition-transform duration-500 hover:scale-110 cursor-default">
@@ -220,7 +221,18 @@ export default function Home() {
                   <div className="inline-block px-4 py-1 bg-green-900/30 border border-green-500/30 rounded text-green-300 font-mono text-sm">
                     Your Real FID: {userFid}
                   </div>
-                  <p className="text-xs text-gray-500">Deployment confirmed. Ready for Production.</p>
+                  <p className="text-xs text-gray-500">Deployment confirmed.</p>
+                  
+                  {/* DEBUG BUTTON to force reset */}
+                  <button 
+                    onClick={() => {
+                        setStatus('idle');
+                        setNftImageUrl(null);
+                    }}
+                    className="mt-4 text-[10px] text-yellow-600 hover:text-yellow-400 uppercase tracking-widest hover:underline cursor-pointer"
+                  >
+                    [DEBUG] Force Mint Variation
+                  </button>
                 </div>
               )}
 
@@ -236,6 +248,18 @@ export default function Home() {
                   >
                     View on BaseScan →
                   </a>
+
+                  {/* RESET BUTTON */}
+                  <button
+                    onClick={() => {
+                        setStatus('idle');
+                        setNftImageUrl(null);
+                        setTestFidInput((prev) => (parseInt(prev) + 1).toString()); // Auto-increment
+                    }}
+                    className="block w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-all text-sm border border-white/10"
+                  >
+                    Mint Next Variation ↻
+                  </button>
                 </div>
               )}
 
@@ -256,7 +280,6 @@ export default function Home() {
 
               {status === 'idle' && (
                 <div className="space-y-4">
-                    {/* Input Field */}
                     <input
                         type="number"
                         value={testFidInput}
@@ -266,7 +289,6 @@ export default function Home() {
                         min="1"
                     />
                     
-                    {/* Button */}
                     <button
                         onClick={handleMint}
                         className="group relative w-full py-4 px-6 bg-yellow-600 hover:bg-yellow-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden"
