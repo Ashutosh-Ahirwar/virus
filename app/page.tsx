@@ -23,6 +23,7 @@ const ABI = [
     inputs: [{ name: 'fid', type: 'uint256' }],
     outputs: [{ name: '', type: 'bool' }]
   },
+  // === FIX 1: Added tokenURI to ABI ===
   {
     name: 'tokenURI',
     type: 'function',
@@ -32,7 +33,7 @@ const ABI = [
   }
 ] as const;
 
-// Helper to decode the nested Base64 strings from the tokenURI
+// === FIX 2: Added Helper to decode the On-Chain Metadata ===
 const decodeTokenUri = (uri: string): string => {
     try {
         const base64Json = uri.split(',')[1];
@@ -52,6 +53,19 @@ export default function Home() {
   const [testFidInput, setTestFidInput] = useState<string>('100000'); 
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
 
+  // === FIX 3: Reusable Image Fetcher ===
+  const fetchNftImage = useCallback(async (tokenId: bigint) => {
+    try {
+        const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+        const uri = await publicClient.readContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [tokenId]
+        });
+        setNftImageUrl(decodeTokenUri(uri));
+    } catch (e) {
+        console.warn("Could not fetch image yet (might be indexing or not minted)", e);
+    }
+  }, []);
+
   // 2. INITIALIZATION
   useEffect(() => {
     const init = async () => {
@@ -68,6 +82,11 @@ export default function Home() {
 
         if (hasMinted) {
           setStatus('minted');
+          // === FIX 4: Fetch image if already minted ===
+          const uri = await publicClient.readContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+          });
+          setNftImageUrl(decodeTokenUri(uri));
         } else {
           setStatus('idle');
         }
@@ -84,21 +103,7 @@ export default function Home() {
     init();
   }, []);
 
-  // 3. FETCH IMAGE HELPER
-  const fetchNftImage = useCallback(async (tokenId: bigint) => {
-    try {
-        const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
-        const uri = await publicClient.readContract({
-            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [tokenId]
-        });
-        setNftImageUrl(decodeTokenUri(uri));
-    } catch (e) {
-        console.warn("Could not fetch image yet (might be indexing)", e);
-    }
-  }, []);
-
-
-  // 4. MINT HANDLER
+  // 3. MINT HANDLER
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
     
@@ -143,7 +148,7 @@ export default function Home() {
         args: [BigInt(fid), signature], account: address
       });
 
-      // --- FETCH IMAGE ---
+      // === FIX 5: Fetch Image Immediately After Mint ===
       await fetchNftImage(BigInt(fid));
       
       setTxHash(hash);
@@ -223,7 +228,6 @@ export default function Home() {
                   </div>
                   <p className="text-xs text-gray-500">Deployment confirmed.</p>
                   
-                  {/* DEBUG BUTTON to force reset */}
                   <button 
                     onClick={() => {
                         setStatus('idle');
@@ -249,12 +253,11 @@ export default function Home() {
                     View on BaseScan →
                   </a>
 
-                  {/* RESET BUTTON */}
                   <button
                     onClick={() => {
                         setStatus('idle');
                         setNftImageUrl(null);
-                        setTestFidInput((prev) => (parseInt(prev) + 1).toString()); // Auto-increment
+                        setTestFidInput((prev) => (parseInt(prev) + 1).toString());
                     }}
                     className="block w-full py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-all text-sm border border-white/10"
                   >
