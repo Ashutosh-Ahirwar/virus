@@ -130,9 +130,16 @@ export default function Home() {
     try {
         const shareText = `My identity strand rewrote itself. 🧬\n\nViral Strain #${userFid} is live — generated from the genome of my Farcaster FID.\nDecode yours:`;
         
+        // Construct the OpenSea URL for this specific NFT
+        const openseaUrl = `https://opensea.io/assets/base/${CONTRACT_ADDRESS}/${userFid}`;
+
         await sdk.actions.composeCast({
             text: shareText,
-            embeds: ['https://virus-orcin.vercel.app'] 
+            // Embed both the App URL (to launch the app) AND the OpenSea URL (to show the image)
+            embeds: [
+                'https://virus-orcin.vercel.app', 
+                openseaUrl
+            ] 
         });
     } catch (e) {
         console.error("Share failed", e);
