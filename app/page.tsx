@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
 import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem';
-import { base } from 'viem/chains'; // CHANGED: baseSepolia -> base
+import { base } from 'viem/chains'; // Using Base Mainnet
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const MINT_PRICE = parseEther('0.0006'); // Approx $2.00 - $2.50 on Mainnet
+
+// UPDATED PRICE: 0.00069 ETH
+const MINT_PRICE = parseEther('0.00069'); 
 
 const ABI = [
   { name: 'mint', type: 'function', stateMutability: 'payable', inputs: [{ name: 'fid', type: 'uint256' }, { name: 'signature', type: 'bytes' }], outputs: [] },
@@ -29,7 +31,6 @@ export default function Home() {
   const [userFid, setUserFid] = useState<number>(0);
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
 
-  // 1. INITIALIZATION
   useEffect(() => {
     const init = async () => {
       try {
@@ -37,7 +38,7 @@ export default function Home() {
         const fid = context.user.fid ?? 0; 
         setUserFid(fid);
 
-        const publicClient = createPublicClient({ chain: base, transport: http() }); // CHANGED: base
+        const publicClient = createPublicClient({ chain: base, transport: http() });
         const hasMinted = await publicClient.readContract({
           address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
         });
@@ -61,7 +62,6 @@ export default function Home() {
     init();
   }, []);
 
-  // 2. MINT HANDLER
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
     try {
@@ -71,13 +71,12 @@ export default function Home() {
       const provider = await sdk.wallet.getEthereumProvider();
       if (!provider) throw new Error("No Wallet Found");
       
-      const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) }); // CHANGED: base
-      const publicClient = createPublicClient({ chain: base, transport: http() }); // CHANGED: base
+      const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) });
+      const publicClient = createPublicClient({ chain: base, transport: http() });
       const [address] = await walletClient.requestAddresses();
       
       try { await walletClient.switchChain({ id: base.id }); } catch (e) { console.warn("Switch failed", e); }
 
-      // Get Auth Token
       const { token } = await sdk.quickAuth.getToken();
       
       const response = await fetch('/api/mint', {
@@ -92,7 +91,6 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
-      // Execute Transaction
       setStatus('minting');
       const hash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
@@ -104,7 +102,6 @@ export default function Home() {
       setTxHash(hash);
       await publicClient.waitForTransactionReceipt({ hash });
 
-      // Fetch Result
       const uri = await publicClient.readContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
       });
@@ -120,7 +117,6 @@ export default function Home() {
     }
   }, [status]);
 
-  // 3. BOOKMARK HANDLER
   const handleBookmark = useCallback(async () => {
       try {
           await sdk.actions.addMiniApp();
@@ -129,7 +125,6 @@ export default function Home() {
       }
   }, []);
 
-  // 4. DOWNLOAD HANDLER
   const handleDownload = useCallback(() => {
     if (!nftImageUrl) return;
     
@@ -203,12 +198,11 @@ export default function Home() {
 
         {/* Main Card */}
         <div className="relative group w-full">
-          {/* Glowing Border Effect */}
           <div className="absolute -inset-0.5 bg-gradient-to-r from-green-600 to-emerald-600 rounded-2xl blur opacity-30 group-hover:opacity-75 transition duration-1000"></div>
           
           <div className="relative bg-gray-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
             
-            {/* VISUALIZER CIRCLE */}
+            {/* VISUALIZER */}
             <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
               {nftImageUrl ? (
                  <img src={nftImageUrl} alt="Minted NFT Strain" className="w-full h-full object-cover rounded-full border-2 border-green-500/50 shadow-[0_0_20px_rgba(74,222,128,0.3)]" />
@@ -228,7 +222,7 @@ export default function Home() {
               )}
             </div>
 
-            {/* STATUS MESSAGES & BUTTONS */}
+            {/* CONTROLS */}
             <div className="text-center space-y-6">
               
               {status === 'loading' && (
@@ -271,7 +265,6 @@ export default function Home() {
                             🌊 View on OpenSea
                         </a>
 
-                         {/* MAINNET Explorer Link */}
                          {txHash && (
                              <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-[10px] text-gray-500 hover:text-white underline">
                                 View on BaseScan
