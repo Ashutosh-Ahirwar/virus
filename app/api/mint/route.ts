@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@farcaster/quick-auth';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createPublicClient, http, encodeAbiParameters, keccak256, parseAbiParameters } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { base } from 'viem/chains'; // CHANGED: baseSepolia -> base
 
 const authClient = createClient();
-const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+const publicClient = createPublicClient({ chain: base, transport: http() }); // CHANGED: base
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,9 +21,11 @@ export async function POST(req: NextRequest) {
     const host = req.headers.get('host') || ''; 
     const { token, userAddress } = await req.json();
 
+    // 1. Verify Farcaster User
     const result = await authClient.verifyJwt({ token, domain: host });
     const fid = result.sub;
 
+    // 2. Check Contract to see if already minted
     const hasMinted = await publicClient.readContract({
         address: contractAddress,
         abi: [{ name: 'hasMinted', type: 'function', inputs: [{type: 'uint256'}], outputs: [{type: 'bool'}] }],
@@ -33,7 +35,8 @@ export async function POST(req: NextRequest) {
 
     if (hasMinted) return NextResponse.json({ error: 'Already Minted' }, { status: 400 });
 
-    // MATCH SOLIDITY EXACTLY: keccak256(abi.encode(user, fid, contract, chainid))
+    // 3. Generate Signature
+    // MUST MATCH SOLIDITY: keccak256(abi.encode(user, fid, contract, chainid))
     const messageHash = keccak256(
       encodeAbiParameters(
         parseAbiParameters('address, uint256, address, uint256'), 
@@ -41,7 +44,7 @@ export async function POST(req: NextRequest) {
             userAddress as `0x${string}`, 
             BigInt(fid),
             contractAddress, 
-            BigInt(baseSepolia.id)
+            BigInt(base.id) // CHANGED: base.id (8453)
         ]
       )
     );
