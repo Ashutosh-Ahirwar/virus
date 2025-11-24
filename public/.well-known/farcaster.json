@@ -1,0 +1,44 @@
+{
+  "accountAssociation": {
+    "header": "eyJmaWQiOjEzNzEyODgsInR5cGUiOiJhdXRoIiwia2V5IjoiMHg4NGM0N0JDNDBhNDY4MGI5QjFjM2I2YUY3ZkZjYjg4ODhkYzBEMzU3In0",
+    "payload": "eyJkb21haW4iOiJ2aXJ1cy1vcmNpbi52ZXJjZWwuYXBwIn0",
+    "signature": "clEWNhd63h/5TeYiCUIFneOLaL6HjHtnX3nHlO8mcpJKMy6UMU5zx5H3HCfV6i5S3A/1LndzH9TIc05hu2TbFhs="
+  },
+  "frame": {
+    "name": "Viral Strain",
+    "version": "1",
+    "iconUrl": "https://virus-orcin.vercel.app/icon.png",
+    "homeUrl": "https://virus-orcin.vercel.app",
+    "imageUrl": "https://virus-orcin.vercel.app/icon.png",
+    "buttonTitle": "Mint your Strain",
+    "splashImageUrl": "https://virus-orcin.vercel.app/splash.png",
+    "splashBackgroundColor": "#000000",
+    "webhookUrl": "https://virus-orcin.vercel.app/api/webhook",
+    "subtitle": "A Viridae born from your FID",
+    "description": "Mint a genetically unique, on-chain viral strain evolved from your Farcaster ID. Symbiotic or Parasitic? Discover your mutation.",
+    "screenshotUrls": [
+      "https://virus-orcin.vercel.app/screenshot1.png"
+    ],
+    "primaryCategory": "art-creativity",
+    "tags": [
+      "viral",
+      "virus",
+      "viridae",
+      "strain",
+      "fid"
+    ],
+    "heroImageUrl": "https://virus-orcin.vercel.app/hero.png",
+    "tagline": "It learns faster than we do.",
+    "ogTitle": "Viral Strain - Born from FID",
+    "ogDescription": "Mint your own viral mutation on Base, generated from your Farcaster FID.",
+    "ogImageUrl": "https://virus-orcin.vercel.app/hero.png",
+    "requiredChains": [
+      "eip155:8453"
+    ],
+    "requiredCapabilities": [
+      "wallet.getEthereumProvider",
+      "actions.signIn",
+      "actions.composeCast"
+    ]
+  }
+}

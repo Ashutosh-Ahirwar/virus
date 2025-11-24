@@ -3,11 +3,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
 import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem';
-import { base } from 'viem/chains'; // Using Base Mainnet
+import { base } from 'viem/chains';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
 
-// UPDATED PRICE: 0.00069 ETH
 const MINT_PRICE = parseEther('0.00069'); 
 
 const ABI = [
@@ -124,6 +123,21 @@ export default function Home() {
           console.log("Bookmark rejected or failed", e);
       }
   }, []);
+
+  // NEW: Share Handler
+  const handleShare = useCallback(async () => {
+    try {
+        const shareText = `My biology has evolved. 🧬\n\nI just minted Viral Strain #${userFid} on Base.\n\nAre you Symbiotic or Parasitic? Discover your mutation:`;
+        
+        // Uses composeCast to open the specific share sheet 
+        await sdk.actions.composeCast({
+            text: shareText,
+            embeds: ['https://virus-orcin.vercel.app'] 
+        });
+    } catch (e) {
+        console.error("Share failed", e);
+    }
+  }, [userFid]);
 
   const handleDownload = useCallback(() => {
     if (!nftImageUrl) return;
@@ -249,6 +263,14 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col gap-3">
+                        {/* SHARE BUTTON */}
+                        <button 
+                            onClick={handleShare}
+                            className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white border border-purple-400 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2 animate-pulse"
+                        >
+                            <span>📢</span> Share Mutation
+                        </button>
+
                         <button 
                             onClick={handleDownload}
                             className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2"
