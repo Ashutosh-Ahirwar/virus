@@ -2,35 +2,16 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
-import { createWalletClient, createPublicClient, custom, http, parseAbi, parseEther } from 'viem';
+import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
-// 1. CONFIGURATION
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const MINT_PRICE = parseEther('0.0006'); // ~$2.00 ETH
+const MINT_PRICE = parseEther('0.0006');
 
 const ABI = [
-  {
-    name: 'mint',
-    type: 'function',
-    stateMutability: 'payable', // Payable for ETH
-    inputs: [{ name: 'fid', type: 'uint256' }, { name: 'signature', type: 'bytes' }],
-    outputs: []
-  },
-  {
-    name: 'hasMinted',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'fid', type: 'uint256' }],
-    outputs: [{ name: '', type: 'bool' }]
-  },
-  {
-    name: 'tokenURI',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ name: 'tokenId', type: 'uint256' }],
-    outputs: [{ name: '', type: 'string' }]
-  }
+  { name: 'mint', type: 'function', stateMutability: 'payable', inputs: [{ name: 'fid', type: 'uint256' }, { name: 'signature', type: 'bytes' }], outputs: [] },
+  { name: 'hasMinted', type: 'function', stateMutability: 'view', inputs: [{ name: 'fid', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
+  { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] }
 ] as const;
 
 const decodeTokenUri = (uri: string): string => {
@@ -48,7 +29,6 @@ export default function Home() {
   const [userFid, setUserFid] = useState<number>(0);
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
 
-  // 2. INITIALIZATION
   useEffect(() => {
     const init = async () => {
       try {
@@ -63,31 +43,25 @@ export default function Home() {
 
         if (hasMinted) {
           setStatus('minted');
-          // Fetch image if already minted
-          try {
-             const uri = await publicClient.readContract({
-                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
-             });
-             setNftImageUrl(decodeTokenUri(uri));
-          } catch (e) {}
+          const uri = await publicClient.readContract({
+             address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+          });
+          setNftImageUrl(decodeTokenUri(uri));
         } else {
           setStatus('idle');
         }
-        
-        sdk.actions.ready();
       } catch (e) {
         console.error("Init failed", e);
         setStatus('idle');
+      } finally {
         sdk.actions.ready();
       }
     };
     init();
   }, []);
 
-  // 3. SECURE MINT HANDLER
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
-    
     try {
       setStatus('loading');
       setErrorMsg('');
@@ -95,16 +69,12 @@ export default function Home() {
       const provider = await sdk.wallet.getEthereumProvider();
       if (!provider) throw new Error("No Wallet Found");
       
-      const walletClient = createWalletClient({
-        chain: baseSepolia, transport: custom(provider as any)
-      });
-
+      const walletClient = createWalletClient({ chain: baseSepolia, transport: custom(provider as any) });
       const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
-
       const [address] = await walletClient.requestAddresses();
+      
       try { await walletClient.switchChain({ id: baseSepolia.id }); } catch (e) { console.warn("Switch failed", e); }
 
-      // A. GET SECURE VOUCHER (Real Auth)
       const { token } = await sdk.quickAuth.getToken();
       
       const response = await fetch('/api/mint', {
@@ -119,51 +89,83 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
-      // B. MINT WITH ETH VALUE
       setStatus('minting');
       const hash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
         args: [BigInt(fid), signature], 
         account: address,
-        value: MINT_PRICE // Sends 0.0006 ETH
+        value: MINT_PRICE 
       });
 
       setTxHash(hash);
-      
-      // Wait for receipt
       await publicClient.waitForTransactionReceipt({ hash });
 
-      // C. FETCH IMAGE
       const uri = await publicClient.readContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
       });
       setNftImageUrl(decodeTokenUri(uri));
-      
       setStatus('success');
 
     } catch (e: any) {
       console.error(e);
       let msg = e.message || "Something went wrong";
-      if (msg.includes("ContractPaused")) msg = "Contract is Paused!";
-      if (msg.includes("chain")) msg = "Wrong Network. Switch to Base Sepolia.";
       if (msg.includes("User rejected")) msg = "Transaction Cancelled";
-      
       setErrorMsg(msg);
       setStatus('error');
     }
   }, [status]);
 
+  const handleBookmark = useCallback(async () => {
+      try {
+          await sdk.actions.addMiniApp();
+      } catch (e) {
+          console.log("Bookmark rejected or failed", e);
+      }
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    if (!nftImageUrl) return;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+        canvas.width = 512;
+        canvas.height = 512;
+        if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            const pngUrl = canvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = pngUrl;
+            a.download = `strain_${userFid}.png`;
+            a.click();
+        }
+    };
+    img.src = nftImageUrl;
+  }, [nftImageUrl, userFid]);
+
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono overflow-hidden">
+    // FIX 1: Removed overflow-hidden to allow scrolling on small screens
+    <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono p-4 pb-12">
       
       {/* Background Effects */}
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-900/20 via-black to-black z-0"></div>
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent opacity-50"></div>
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-green-900/20 via-black to-black z-0 fixed"></div>
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent opacity-50 z-10 fixed"></div>
 
-      <div className="z-10 max-w-md w-full p-6">
+      <div className="z-10 max-w-md w-full flex flex-col items-center gap-6">
         
+        {/* FIX 2: Bookmark button moved into flow to avoid overlapping top-right system menus */}
+        <div className="w-full flex justify-end">
+            <button 
+                onClick={handleBookmark}
+                className="flex items-center gap-2 px-3 py-1 bg-gray-900/80 border border-white/20 rounded-full text-xs hover:bg-gray-800 transition backdrop-blur-md text-gray-300"
+            >
+                <span>🔖</span>
+                <span>Bookmark</span>
+            </button>
+        </div>
+
         {/* Header */}
-        <div className="text-center mb-10 space-y-2">
+        <div className="text-center space-y-2">
           <div className="inline-block px-3 py-1 border border-green-500/30 rounded-full bg-green-500/10 text-green-400 text-xs tracking-widest uppercase mb-4">
             SYSTEM ONLINE
           </div>
@@ -174,13 +176,13 @@ export default function Home() {
         </div>
 
         {/* Main Card */}
-        <div className="relative group">
+        <div className="relative group w-full">
           {/* Glowing Border Effect */}
           <div className="absolute -inset-0.5 bg-gradient-to-r from-green-600 to-emerald-600 rounded-2xl blur opacity-30 group-hover:opacity-75 transition duration-1000"></div>
           
           <div className="relative bg-gray-900/90 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl">
             
-            {/* VISUALIZER CIRCLE / IMAGE DISPLAY */}
+            {/* VISUALIZER CIRCLE */}
             <div className="relative w-40 h-40 mx-auto mb-8 flex items-center justify-center">
               {nftImageUrl ? (
                  <img src={nftImageUrl} alt="Minted NFT Strain" className="w-full h-full object-cover rounded-full border-2 border-green-500/50 shadow-[0_0_20px_rgba(74,222,128,0.3)]" />
@@ -217,28 +219,32 @@ export default function Home() {
                 </div>
               )}
 
-              {status === 'minted' && (
-                <div className="space-y-3">
-                  <h3 className="text-2xl font-bold text-green-400 tracking-tight">ALREADY INFECTED</h3>
-                  <div className="inline-block px-4 py-1 bg-green-900/30 border border-green-500/30 rounded text-green-300 font-mono text-sm">
-                    ID: {userFid}
-                  </div>
-                  <p className="text-xs text-gray-500">Deployment confirmed.</p>
-                </div>
-              )}
-
-              {status === 'success' && (
+              {(status === 'success' || status === 'minted') && (
                 <div className="space-y-4">
-                  <h3 className="text-2xl font-bold text-white tracking-tight">STRAIN GENERATED!</h3>
-                  <p className="text-sm text-gray-400">Your unique mutation is live on-chain.</p>
-                  <a 
-                    href={`https://sepolia.basescan.org/tx/${txHash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block w-full py-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/40 text-blue-300 rounded-lg transition-all text-sm"
-                  >
-                    View on BaseScan →
-                  </a>
+                    <div>
+                        <h3 className="text-2xl font-bold text-green-400 tracking-tight">
+                            {status === 'minted' ? "ALREADY INFECTED" : "STRAIN GENERATED!"}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-1">ID: {userFid}</p>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                        <button 
+                            onClick={handleDownload}
+                            className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2"
+                        >
+                            <span>⬇️</span> Download PNG
+                        </button>
+
+                        <a 
+                            href={`https://testnets.opensea.io/assets/base-sepolia/${CONTRACT_ADDRESS}/${userFid}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block w-full py-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/40 text-blue-300 rounded-lg transition-all text-sm font-bold"
+                        >
+                            🌊 View on OpenSea
+                        </a>
+                    </div>
                 </div>
               )}
 
@@ -265,7 +271,7 @@ export default function Home() {
                     >
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
                         <span className="relative flex items-center justify-center gap-2">
-                            MINT STRAIN (~$2.00)
+                            MINT STRAIN
                         </span>
                     </button>
                     <p className="text-xs text-gray-500">
@@ -278,7 +284,7 @@ export default function Home() {
         </div>
         
         {/* Footer */}
-        <div className="mt-8 text-center">
+        <div className="mt-8 text-center pb-8">
           <div className="h-1 w-16 bg-green-900 mx-auto rounded-full mb-2"></div>
           <p className="text-[10px] text-gray-600 uppercase tracking-wider">
             The virus learns faster than we do
