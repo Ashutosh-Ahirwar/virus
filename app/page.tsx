@@ -125,11 +125,10 @@ export default function Home() {
       }
   }, []);
 
-  // --- NEW SHARE HANDLER ---
+  // --- UPDATED SHARE HANDLER ---
   const handleShare = useCallback(async () => {
     try {
-        // Includes FID and Chain details in the cast text
-        const shareText = `My biology has evolved. 🧬\n\nI just minted Viral Strain #${userFid} on Base.\n\nAre you Symbiotic or Parasitic? Discover your mutation:`;
+        const shareText = `My identity strand rewrote itself. 🧬\n\nViral Strain #${userFid} is live — generated from the genome of my Farcaster FID.\nDecode yours:`;
         
         await sdk.actions.composeCast({
             text: shareText,
@@ -139,48 +138,7 @@ export default function Home() {
         console.error("Share failed", e);
     }
   }, [userFid]);
-  // -------------------------
-
-  const handleDownload = useCallback(() => {
-    if (!nftImageUrl) return;
-    
-    const openInNewTab = () => window.open(nftImageUrl, '_blank');
-
-    try {
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        const img = new Image();
-        img.crossOrigin = "anonymous"; 
-        
-        img.onload = () => {
-            canvas.width = 512;
-            canvas.height = 512;
-            if (ctx) {
-                ctx.drawImage(img, 0, 0);
-                try {
-                    const pngUrl = canvas.toDataURL('image/png');
-                    const a = document.createElement('a');
-                    a.href = pngUrl;
-                    a.download = `strain_${userFid}.png`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                } catch (err) {
-                    console.error("Canvas export blocked", err);
-                    openInNewTab();
-                }
-            }
-        };
-        img.onerror = () => {
-             console.error("Image load failed");
-             openInNewTab();
-        };
-        img.src = nftImageUrl;
-    } catch (e) {
-        console.error("Download failed", e);
-        openInNewTab();
-    }
-  }, [nftImageUrl, userFid]);
+  // -----------------------------
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono p-4 pb-12">
@@ -265,20 +223,12 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col gap-3">
-                        {/* --- NEW SHARE BUTTON --- */}
+                        {/* SHARE BUTTON */}
                         <button 
                             onClick={handleShare}
                             className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white border border-purple-400 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2 animate-pulse"
                         >
                             <span>📢</span> Share Mutation
-                        </button>
-                        {/* ------------------------- */}
-
-                        <button 
-                            onClick={handleDownload}
-                            className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2"
-                        >
-                            <span>⬇️</span> Save PNG
                         </button>
 
                         <a 
