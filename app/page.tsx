@@ -27,6 +27,7 @@ export default function Home() {
   const [txHash, setTxHash] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [userFid, setUserFid] = useState<number>(0);
+  const [activeFid, setActiveFid] = useState<number>(0); // Track which FID we are currently viewing/minting
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function Home() {
         const context = await sdk.context;
         const fid = context.user.fid ?? 0; 
         setUserFid(fid);
+        setActiveFid(fid);
 
         const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
         const hasMinted = await publicClient.readContract({
@@ -75,6 +77,7 @@ export default function Home() {
       
       try { await walletClient.switchChain({ id: baseSepolia.id }); } catch (e) { console.warn("Switch failed", e); }
 
+      // Get Auth Token & Signature
       const { token } = await sdk.quickAuth.getToken();
       
       const response = await fetch('/api/mint', {
@@ -89,6 +92,7 @@ export default function Home() {
 
       const { fid, signature } = await response.json();
 
+      // Execute Transaction
       setStatus('minting');
       const hash = await walletClient.writeContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
@@ -100,6 +104,7 @@ export default function Home() {
       setTxHash(hash);
       await publicClient.waitForTransactionReceipt({ hash });
 
+      // Fetch Final Image
       const uri = await publicClient.readContract({
         address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
       });
@@ -115,6 +120,58 @@ export default function Home() {
     }
   }, [status]);
 
+  // --- NEW: TEST GENERATION HANDLER ---
+  const handleTestGeneration = useCallback(async () => {
+    try {
+        setStatus('loading');
+        setErrorMsg('');
+        
+        // 1. Generate Random Test FID (10000 - 99999)
+        const randomFid = Math.floor(Math.random() * 89999) + 10000;
+        setActiveFid(randomFid);
+
+        const provider = await sdk.wallet.getEthereumProvider();
+        if (!provider) throw new Error("No Wallet Found");
+        
+        const walletClient = createWalletClient({ chain: baseSepolia, transport: custom(provider as any) });
+        const publicClient = createPublicClient({ chain: baseSepolia, transport: http() });
+        const [address] = await walletClient.requestAddresses();
+
+        // 2. Call Test API
+        const response = await fetch('/api/test-sign', {
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ testFid: randomFid, userAddress: address })
+        });
+
+        if (!response.ok) throw new Error("Test Signer Failed");
+        const { fid, signature } = await response.json();
+
+        // 3. Mint
+        setStatus('minting');
+        const hash = await walletClient.writeContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
+            args: [BigInt(fid), signature], 
+            account: address,
+            value: MINT_PRICE 
+        });
+
+        setTxHash(hash);
+        await publicClient.waitForTransactionReceipt({ hash });
+
+        const uri = await publicClient.readContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+        });
+        setNftImageUrl(decodeTokenUri(uri));
+        setStatus('success');
+
+    } catch (e: any) {
+        console.error(e);
+        setErrorMsg(e.message || "Test Failed");
+        setStatus('error');
+    }
+  }, []);
+
   const handleBookmark = useCallback(async () => {
       try {
           await sdk.actions.addMiniApp();
@@ -125,26 +182,47 @@ export default function Home() {
 
   const handleDownload = useCallback(() => {
     if (!nftImageUrl) return;
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    img.onload = () => {
-        canvas.width = 512;
-        canvas.height = 512;
-        if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            const pngUrl = canvas.toDataURL('image/png');
-            const a = document.createElement('a');
-            a.href = pngUrl;
-            a.download = `strain_${userFid}.png`;
-            a.click();
-        }
-    };
-    img.src = nftImageUrl;
-  }, [nftImageUrl, userFid]);
+    
+    // Fallback: Open in new tab if canvas fails (common in iframes/webviews)
+    const openInNewTab = () => window.open(nftImageUrl, '_blank');
+
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.crossOrigin = "anonymous"; // Try to avoid tainting
+        
+        img.onload = () => {
+            canvas.width = 512;
+            canvas.height = 512;
+            if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                try {
+                    const pngUrl = canvas.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = pngUrl;
+                    a.download = `strain_${activeFid}.png`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                } catch (err) {
+                    console.error("Canvas export blocked", err);
+                    openInNewTab();
+                }
+            }
+        };
+        img.onerror = () => {
+             console.error("Image load failed");
+             openInNewTab();
+        };
+        img.src = nftImageUrl;
+    } catch (e) {
+        console.error("Download failed", e);
+        openInNewTab();
+    }
+  }, [nftImageUrl, activeFid]);
 
   return (
-    // FIX 1: Removed overflow-hidden to allow scrolling on small screens
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono p-4 pb-12">
       
       {/* Background Effects */}
@@ -153,7 +231,6 @@ export default function Home() {
 
       <div className="z-10 max-w-md w-full flex flex-col items-center gap-6">
         
-        {/* FIX 2: Bookmark button moved into flow to avoid overlapping top-right system menus */}
         <div className="w-full flex justify-end">
             <button 
                 onClick={handleBookmark}
@@ -225,7 +302,7 @@ export default function Home() {
                         <h3 className="text-2xl font-bold text-green-400 tracking-tight">
                             {status === 'minted' ? "ALREADY INFECTED" : "STRAIN GENERATED!"}
                         </h3>
-                        <p className="text-xs text-gray-500 mt-1">ID: {userFid}</p>
+                        <p className="text-xs text-gray-500 mt-1">ID: {activeFid}</p>
                     </div>
 
                     <div className="flex flex-col gap-3">
@@ -233,11 +310,19 @@ export default function Home() {
                             onClick={handleDownload}
                             className="w-full py-3 bg-gray-800 hover:bg-gray-700 text-white border border-gray-600 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2"
                         >
-                            <span>⬇️</span> Download PNG
+                            <span>⬇️</span> Save PNG
+                        </button>
+
+                        {/* Test New Mutation Button */}
+                        <button 
+                            onClick={handleTestGeneration}
+                            className="w-full py-3 bg-green-600/20 hover:bg-green-600/30 text-green-300 border border-green-500/30 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2"
+                        >
+                            <span>🧬</span> Test New Mutation
                         </button>
 
                         <a 
-                            href={`https://testnets.opensea.io/assets/base-sepolia/${CONTRACT_ADDRESS}/${userFid}`}
+                            href={`https://testnets.opensea.io/assets/base-sepolia/${CONTRACT_ADDRESS}/${activeFid}`}
                             target="_blank"
                             rel="noreferrer"
                             className="block w-full py-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/40 text-blue-300 rounded-lg transition-all text-sm font-bold"
@@ -275,7 +360,7 @@ export default function Home() {
                         </span>
                     </button>
                     <p className="text-xs text-gray-500">
-                        One Virus Per Farcaster ID.
+                        One Virus Per Farcaster ID. Cost: 0.0006 ETH
                     </p>
                 </div>
               )}
