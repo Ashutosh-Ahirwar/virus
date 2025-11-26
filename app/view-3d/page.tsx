@@ -60,12 +60,15 @@ export default function View3DPage() {
       const checksumAddress = getAddress(address);
       setUserAddress(checksumAddress);
 
+      // UPDATED RPC LIST: Added more public nodes to handle 503 errors
       const publicClient = createPublicClient({ 
         chain: base, 
         transport: fallback([
-            http(), 
             http('https://mainnet.base.org'), 
-            http('https://base.publicnode.com')
+            http('https://base.publicnode.com'),
+            http('https://base-rpc.publicnode.com'),
+            http('https://1rpc.io/base'),
+            http() // Fallback to default
         ])
       });
 
@@ -106,7 +109,7 @@ export default function View3DPage() {
         }
       } catch (err: any) {
           // If ownerOf reverts, it means the token hasn't been minted yet
-          if (err.message && (err.message.includes("revert") || err.message.includes("nonexistent"))) {
+          if (err.message && (err.message.includes("revert") || err.message.includes("nonexistent") || err.message.includes("invalid token"))) {
               setLoadingState('no-assets');
           } else {
               throw err;
@@ -191,7 +194,8 @@ export default function View3DPage() {
             </div>
 
             {selectedTokenId !== null && (
-                <Canvas>
+                // PERFORMANCE OPTIMIZATION: dpr={[1, 1.5]} limits pixel ratio to prevent crashes on high-res mobile screens
+                <Canvas dpr={[1, 1.5]} gl={{ preserveDrawingBuffer: true, powerPreference: 'default' }}>
                     <PerspectiveCamera makeDefault position={[0, 0, 6]} fov={45} />
                     <color attach="background" args={['#020205']} />
                     <fog attach="fog" args={['#020205', 5, 20]} />
@@ -217,7 +221,8 @@ export default function View3DPage() {
                         autoRotate
                         autoRotateSpeed={0.8}
                     />
-                    <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={3} far={5} color="#0020ff" />
+                    {/* Lowered resolution and blur for better performance */}
+                    <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={2.5} far={5} color="#0020ff" resolution={256} frames={1} />
                 </Canvas>
             )}
         </div>
