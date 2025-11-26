@@ -6,8 +6,9 @@ import { createPublicClient, createWalletClient, custom, http, fallback, getAddr
 import { base } from 'viem/chains';
 import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Environment, ContactShadows, Stars, PerspectiveCamera } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Virus3D } from '@/components/Virus3D';
+import { DnaBackground } from '@/components/DnaBackground'; // Import new background
 
 const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x60fcA7d0b0585937C451bd043f5259Bf72F08358") as `0x${string}`;
 
@@ -177,30 +178,33 @@ export default function View3DPage() {
             
             <div className="absolute top-4 left-4 z-10 pointer-events-none">
                 <h3 className="text-xl font-bold text-white drop-shadow-md">STRAIN #{selectedTokenId}</h3>
-                <p className="text-[10px] text-blue-400 uppercase tracking-widest">Interactive 3D Model</p>
+                <p className="text-[10px] text-blue-400 uppercase tracking-widest">Microscope Feed</p>
             </div>
 
             {selectedTokenId !== null && (
                 <Canvas 
-                    dpr={1} 
+                    dpr={[1, 2]} 
                     gl={{ 
                         antialias: false, 
-                        powerPreference: 'default', 
+                        powerPreference: 'high-performance', 
                         preserveDrawingBuffer: true,
-                        failIfMajorPerformanceCaveat: false
                     }}
                 >
-                    {/* CHANGED: Moved Camera back to z=10 */}
-                    <PerspectiveCamera makeDefault position={[0, 0, 10]} fov={45} />
-                    <color attach="background" args={['#020205']} />
-                    <fog attach="fog" args={['#020205', 8, 25]} />
+                    <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={50} />
                     
-                    <ambientLight intensity={0.1} />
-                    <spotLight position={[8, 8, 8]} angle={0.3} penumbra={1} intensity={1.5} castShadow color="#ffffff" />
-                    <pointLight position={[-5, -5, -5]} intensity={1} color="#0040ff" distance={15} />
+                    {/* Deep Blue Background Color */}
+                    <color attach="background" args={['#000510']} />
                     
-                    <Stars radius={80} depth={20} count={2000} factor={4} saturation={0.5} fade speed={0.5} />
-                    <Environment preset="city" /> 
+                    {/* Blue Fog to blend Background DNA */}
+                    <fog attach="fog" args={['#000510', 5, 20]} />
+                    
+                    {/* Lighting - Cool blue tones */}
+                    <ambientLight intensity={0.2} />
+                    <spotLight position={[10, 10, 10]} angle={0.5} penumbra={1} intensity={2} color="#00ffff" />
+                    <pointLight position={[-10, -10, -10]} intensity={1} color="#0040ff" />
+                    
+                    {/* NEW DNA BACKGROUND */}
+                    <DnaBackground />
 
                     <Suspense fallback={null}>
                         <Virus3D tokenId={selectedTokenId} />
@@ -208,15 +212,13 @@ export default function View3DPage() {
                     
                     <OrbitControls 
                         enablePan={false} 
-                        minPolarAngle={Math.PI / 3.5} 
+                        minPolarAngle={Math.PI / 4} 
                         maxPolarAngle={Math.PI / 1.5}
-                        // CHANGED: Increased minDistance/maxDistance to prevent getting too close
-                        minDistance={6}
-                        maxDistance={15}
+                        minDistance={4}
+                        maxDistance={12}
                         autoRotate
-                        autoRotateSpeed={0.8}
+                        autoRotateSpeed={0.5}
                     />
-                    <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={2.5} far={5} color="#0020ff" resolution={128} frames={1} />
                 </Canvas>
             )}
         </div>
@@ -239,9 +241,10 @@ export default function View3DPage() {
 function MainLayout({ children }: { children: React.ReactNode }) {
     return (
       <main className="relative flex min-h-screen flex-col items-center bg-black text-white font-mono p-4">
-        <div className="absolute inset-0 bg-[linear-gradient(to_right,#111_1px,transparent_1px),linear-gradient(to_bottom,#111_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)] z-0 pointer-events-none"></div>
+        {/* Scan lines overlay */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-20 pointer-events-none bg-[length:100%_4px,3px_100%]"></div>
+        
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-black to-black z-0 pointer-events-none"></div>
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent opacity-50 z-10 pointer-events-none shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
   
         <div className="z-10 w-full max-w-2xl flex flex-col flex-1 gap-4 relative">
           <div className="w-full flex justify-between items-center mb-2">
@@ -249,7 +252,7 @@ function MainLayout({ children }: { children: React.ReactNode }) {
                   <span className="group-hover:-translate-x-0.5 transition-transform">←</span> <span>LABORATORY</span>
               </Link>
               <div className="px-4 py-1 border border-blue-500/30 rounded-full bg-blue-500/5 text-blue-400 text-[10px] tracking-[0.2em] uppercase font-bold animate-pulse">
-                  3D ANALYZER ACTIVE
+                  MICROSCOPE ACTIVE
               </div>
           </div>
           
