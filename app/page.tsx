@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
 import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem';
 import { base } from 'viem/chains'; // Using Base Mainnet
+import Link from 'next/link';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
 
@@ -247,6 +248,12 @@ export default function Home() {
                             🌊 View on OpenSea
                         </a>
 
+                        <Link 
+                            href="/view-3d"
+                            className="block w-full py-3 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 rounded-lg transition-all text-sm font-bold text-center flex items-center justify-center gap-2"
+                        >
+                            <span>🧊</span> View Your Strains in 3D
+                        </Link>
                          {txHash && (
                              <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-[10px] text-gray-500 hover:text-white underline">
                                 View on BaseScan
