@@ -11,7 +11,6 @@ import { Virus3D } from '@/components/Virus3D';
 
 const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x60fcA7d0b0585937C451bd043f5259Bf72F08358") as `0x${string}`;
 
-// ABI simplified for direct ownership check
 const ABI = [
   { name: 'ownerOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] },
   { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] }
@@ -40,7 +39,6 @@ export default function View3DPage() {
       setScanStatus("Initializing connection...");
       setErrorMessage("");
       
-      // 1. Get FID from Context
       const context = await sdk.context;
       const fid = context.user.fid;
 
@@ -51,7 +49,6 @@ export default function View3DPage() {
       }
       setTargetFid(fid);
 
-      // 2. Connect Wallet
       const provider = await sdk.wallet.getEthereumProvider();
       if (!provider) throw new Error("Wallet provider not found");
 
@@ -60,7 +57,6 @@ export default function View3DPage() {
       const checksumAddress = getAddress(address);
       setUserAddress(checksumAddress);
 
-      // UPDATED RPC LIST: Added more public nodes to handle 503 errors
       const publicClient = createPublicClient({ 
         chain: base, 
         transport: fallback([
@@ -68,16 +64,14 @@ export default function View3DPage() {
             http('https://base.publicnode.com'),
             http('https://base-rpc.publicnode.com'),
             http('https://1rpc.io/base'),
-            http() // Fallback to default
+            http()
         ])
       });
 
-      // 3. DIRECT CHECK: Does this wallet own Token #FID?
       setLoadingState('verifying');
       setScanStatus(`Locating Strain #${fid}...`);
       
       try {
-        // This single call replaces the entire log scanning process
         const owner = await publicClient.readContract({
             address: CONTRACT_ADDRESS,
             abi: ABI,
@@ -86,7 +80,6 @@ export default function View3DPage() {
         });
 
         if (owner.toLowerCase() === checksumAddress.toLowerCase()) {
-            // User owns it! Fetch metadata for preview.
             const uri = await publicClient.readContract({
                 address: CONTRACT_ADDRESS,
                 abi: ABI,
@@ -103,12 +96,9 @@ export default function View3DPage() {
                  throw new Error("Failed to decode viral data.");
             }
         } else {
-            // Token exists, but this wallet doesn't own it
-            console.warn(`Token #${fid} exists but is owned by ${owner}`);
             setLoadingState('no-assets');
         }
       } catch (err: any) {
-          // If ownerOf reverts, it means the token hasn't been minted yet
           if (err.message && (err.message.includes("revert") || err.message.includes("nonexistent") || err.message.includes("invalid token"))) {
               setLoadingState('no-assets');
           } else {
@@ -127,8 +117,6 @@ export default function View3DPage() {
     sdk.actions.ready();
     connectAndFetch();
   }, []);
-
-  // --- UI RENDER ---
 
   if (loadingState !== 'ready' && loadingState !== 'no-assets' && loadingState !== 'error') {
     return (
@@ -185,7 +173,6 @@ export default function View3DPage() {
 
   return (
     <MainLayout>
-        {/* 3D Viewer */}
         <div className="relative w-full aspect-square md:aspect-[4/3] rounded-2xl overflow-hidden border-2 border-blue-500/30 shadow-[0_0_50px_rgba(59,130,246,0.2)] bg-black/80 mt-4 group">
             
             <div className="absolute top-4 left-4 z-10 pointer-events-none">
@@ -194,8 +181,6 @@ export default function View3DPage() {
             </div>
 
             {selectedTokenId !== null && (
-                // PERFORMANCE FIX: dpr={1} forces low resolution to prevent 'Context Lost' crash on mobile
-                // gl config disables expensive anti-aliasing
                 <Canvas 
                     dpr={1} 
                     gl={{ 
@@ -205,14 +190,14 @@ export default function View3DPage() {
                         failIfMajorPerformanceCaveat: false
                     }}
                 >
-                    <PerspectiveCamera makeDefault position={[0, 0, 6]} fov={45} />
+                    {/* CHANGED: Moved Camera back to z=10 */}
+                    <PerspectiveCamera makeDefault position={[0, 0, 10]} fov={45} />
                     <color attach="background" args={['#020205']} />
-                    <fog attach="fog" args={['#020205', 5, 20]} />
+                    <fog attach="fog" args={['#020205', 8, 25]} />
                     
                     <ambientLight intensity={0.1} />
                     <spotLight position={[8, 8, 8]} angle={0.3} penumbra={1} intensity={1.5} castShadow color="#ffffff" />
                     <pointLight position={[-5, -5, -5]} intensity={1} color="#0040ff" distance={15} />
-                    <pointLight position={[5, -5, 5]} intensity={0.5} color="#00ff80" distance={15} />
                     
                     <Stars radius={80} depth={20} count={2000} factor={4} saturation={0.5} fade speed={0.5} />
                     <Environment preset="city" /> 
@@ -225,18 +210,17 @@ export default function View3DPage() {
                         enablePan={false} 
                         minPolarAngle={Math.PI / 3.5} 
                         maxPolarAngle={Math.PI / 1.5}
-                        minDistance={3.5}
-                        maxDistance={10}
+                        // CHANGED: Increased minDistance/maxDistance to prevent getting too close
+                        minDistance={6}
+                        maxDistance={15}
                         autoRotate
                         autoRotateSpeed={0.8}
                     />
-                    {/* Lowered resolution significantly for stability */}
                     <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={2.5} far={5} color="#0020ff" resolution={128} frames={1} />
                 </Canvas>
             )}
         </div>
 
-        {/* Info Panel (Replaces the library selector since we only show 1 item now) */}
         <div className="w-full mt-6 p-4 border border-blue-500/20 bg-blue-900/10 rounded-xl">
             <div className="flex items-center gap-4">
                 <div className="h-12 w-12 rounded-lg overflow-hidden border border-white/20">
