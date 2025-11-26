@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
-import { createPublicClient, createWalletClient, custom, http, parseAbiItem, fallback, getAddress } from 'viem';
+import { createPublicClient, createWalletClient, custom, http, fallback, getAddress } from 'viem';
 import { base } from 'viem/chains';
 import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
@@ -11,9 +11,8 @@ import { Virus3D } from '@/components/Virus3D';
 
 const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x60fcA7d0b0585937C451bd043f5259Bf72F08358") as `0x${string}`;
 
-// ABI to check balance and ownership
+// ABI simplified for direct ownership check
 const ABI = [
-  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
   { name: 'ownerOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'address' }] },
   { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] }
 ] as const;
@@ -27,132 +26,95 @@ const decodeTokenImage = (uri: string) => {
 };
 
 export default function View3DPage() {
-  const [loadingState, setLoadingState] = useState<'connecting' | 'checking-balance' | 'scanning-ids' | 'ready' | 'error' | 'no-assets'>('connecting');
+  const [loadingState, setLoadingState] = useState<'connecting' | 'verifying' | 'ready' | 'error' | 'no-assets'>('connecting');
   const [ownedTokens, setOwnedTokens] = useState<{id: number, image: string}[]>([]);
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null);
   const [userAddress, setUserAddress] = useState<string>("");
   const [scanStatus, setScanStatus] = useState<string>("");
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [targetFid, setTargetFid] = useState<number>(0);
 
   const connectAndFetch = async () => {
     try {
       setLoadingState('connecting');
-      setScanStatus("Initializing Wallet...");
+      setScanStatus("Initializing connection...");
       setErrorMessage("");
       
-      // 1. Connect Wallet
+      // 1. Get FID from Context
+      const context = await sdk.context;
+      const fid = context.user.fid;
+
+      if (!fid) {
+        setErrorMessage("No Farcaster ID found. Please open in Warpcast.");
+        setLoadingState('error');
+        return;
+      }
+      setTargetFid(fid);
+
+      // 2. Connect Wallet
       const provider = await sdk.wallet.getEthereumProvider();
       if (!provider) throw new Error("Wallet provider not found");
 
       const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) });
       const [address] = await walletClient.requestAddresses();
-      // Ensure address is checksummed for safety
       const checksumAddress = getAddress(address);
       setUserAddress(checksumAddress);
 
-      // Use a fallback transport to try multiple RPCs if one fails/limits us
       const publicClient = createPublicClient({ 
         chain: base, 
         transport: fallback([
-            http(), // Default 
+            http(), 
             http('https://mainnet.base.org'), 
             http('https://base.publicnode.com')
         ])
       });
 
-      // 2. QUICK CHECK: Does this wallet hold ANY of our NFTs?
-      setLoadingState('checking-balance');
-      setScanStatus("Verifying Holdings on Base...");
+      // 3. DIRECT CHECK: Does this wallet own Token #FID?
+      setLoadingState('verifying');
+      setScanStatus(`Locating Strain #${fid}...`);
       
-      const balance = await publicClient.readContract({
-        address: CONTRACT_ADDRESS,
-        abi: ABI,
-        functionName: 'balanceOf',
-        args: [checksumAddress]
-      });
+      try {
+        // This single call replaces the entire log scanning process
+        const owner = await publicClient.readContract({
+            address: CONTRACT_ADDRESS,
+            abi: ABI,
+            functionName: 'ownerOf',
+            args: [BigInt(fid)]
+        });
 
-      if (balance === BigInt(0)) {
-        setLoadingState('no-assets');
-        return;
-      }
+        if (owner.toLowerCase() === checksumAddress.toLowerCase()) {
+            // User owns it! Fetch metadata for preview.
+            const uri = await publicClient.readContract({
+                address: CONTRACT_ADDRESS,
+                abi: ABI,
+                functionName: 'tokenURI',
+                args: [BigInt(fid)]
+            });
 
-      // 3. IDENTIFY: Scan Transfer logs to find IDs.
-      setLoadingState('scanning-ids');
-      setScanStatus(`Found ${balance.toString()} strains. Decoding genomes...`);
-
-      // NOTE: Scanning from 'earliest' on Base Mainnet can timeout on free RPCs.
-      // Ideally, we would know the deployment block. 
-      // If this fails, it's likely an RPC timeout.
-      const transferLogs = await publicClient.getLogs({
-        address: CONTRACT_ADDRESS,
-        event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed id)'),
-        args: { to: checksumAddress },
-        fromBlock: 'earliest' 
-      });
-
-      // Get unique IDs that were ever transferred to this user
-      const candidateIds = Array.from(new Set(transferLogs.map(log => Number(log.args.id))));
-
-      if (candidateIds.length === 0) {
-        setLoadingState('no-assets');
-        return;
-      }
-
-      // 4. VERIFY: Check which of these candidates are STILL owned by the user
-      const ownershipChecks = candidateIds.map(id => ({
-        address: CONTRACT_ADDRESS,
-        abi: ABI,
-        functionName: 'ownerOf',
-        args: [BigInt(id)]
-      }));
-
-      // @ts-ignore
-      const ownersResults = await publicClient.multicall({ contracts: ownershipChecks });
-
-      const verifiedIds: number[] = [];
-      ownersResults.forEach((result, index) => {
-        if (result.status === 'success' && (result.result as string).toLowerCase() === checksumAddress.toLowerCase()) {
-            verifiedIds.push(candidateIds[index]);
+            const image = decodeTokenImage(uri);
+            if (image) {
+                setOwnedTokens([{ id: fid, image }]);
+                setSelectedTokenId(fid);
+                setLoadingState('ready');
+            } else {
+                 throw new Error("Failed to decode viral data.");
+            }
+        } else {
+            // Token exists, but this wallet doesn't own it
+            console.warn(`Token #${fid} exists but is owned by ${owner}`);
+            setLoadingState('no-assets');
         }
-      });
-
-      if (verifiedIds.length === 0) {
-        setLoadingState('no-assets');
-        return;
-      }
-
-      // 5. FETCH IMAGES
-      const uriChecks = verifiedIds.map(id => ({
-        address: CONTRACT_ADDRESS,
-        abi: ABI,
-        functionName: 'tokenURI',
-        args: [BigInt(id)]
-      }));
-
-      // @ts-ignore
-      const uriResults = await publicClient.multicall({ contracts: uriChecks });
-
-      const finalTokenList: {id: number, image: string}[] = [];
-      uriResults.forEach((result, index) => {
-          if (result.status === 'success') {
-              const img = decodeTokenImage(result.result as string);
-              if (img) finalTokenList.push({ id: verifiedIds[index], image: img });
+      } catch (err: any) {
+          // If ownerOf reverts, it means the token hasn't been minted yet
+          if (err.message && (err.message.includes("revert") || err.message.includes("nonexistent"))) {
+              setLoadingState('no-assets');
+          } else {
+              throw err;
           }
-      });
-
-      finalTokenList.sort((a, b) => b.id - a.id);
-      
-      if (finalTokenList.length > 0) {
-          setOwnedTokens(finalTokenList);
-          setSelectedTokenId(finalTokenList[0].id);
-          setLoadingState('ready');
-      } else {
-          setLoadingState('no-assets');
       }
 
     } catch (e: any) {
       console.error("Error in view-3d", e);
-      // Capture the specific error message to help debug
       setErrorMessage(e.message || "Unknown error occurred");
       setLoadingState('error');
     }
@@ -171,7 +133,7 @@ export default function View3DPage() {
              <div className="flex-1 flex flex-col items-center justify-center gap-4 animate-pulse">
                 <div className="text-4xl">🧬</div>
                 <h2 className="text-blue-400 font-bold tracking-widest text-lg">
-                    SCANNING CHAIN
+                    ACCESSING BIO-DATABASE
                 </h2>
                 <div className="w-48 h-1 bg-gray-800 rounded-full overflow-hidden">
                     <div className="h-full bg-blue-500 animate-progress"></div>
@@ -187,10 +149,10 @@ export default function View3DPage() {
         <MainLayout>
              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 bg-red-900/20 rounded-2xl border border-red-500/30 max-w-md">
                 <div className="text-4xl">⚠️</div>
-                <h2 className="text-xl font-bold text-red-400">Connection Failed</h2>
-                <p className="text-gray-400 text-xs mb-4 font-mono break-words">{errorMessage || "Could not verify assets on Base network."}</p>
+                <h2 className="text-xl font-bold text-red-400">Access Denied</h2>
+                <p className="text-gray-400 text-xs mb-4 font-mono break-words">{errorMessage || "Could not verify assets."}</p>
                 <button onClick={connectAndFetch} className="py-3 px-8 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                    RETRY SEQUENCE
+                    RETRY
                 </button>
             </div>
         </MainLayout>
@@ -205,13 +167,13 @@ export default function View3DPage() {
                     🦠
                 </div>
                 <div>
-                    <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400">NO STRAINS DETECTED</h2>
+                    <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-gray-400">STRAIN #{targetFid} MISSING</h2>
                     <p className="text-gray-500 text-sm mt-2 max-w-xs mx-auto">
-                        Wallet {userAddress.slice(0,6)}...{userAddress.slice(-4)} does not hold any Viral Strain NFTs.
+                        Wallet {userAddress.slice(0,6)}...{userAddress.slice(-4)} does not own the Viral Strain for FID {targetFid}.
                     </p>
                 </div>
                 <Link href="/" className="py-4 px-8 bg-green-600 hover:bg-green-500 text-black font-bold rounded-xl text-lg transition-all active:scale-95 shadow-lg shadow-green-500/20">
-                    MINT NEW STRAIN
+                    MINT STRAIN #{targetFid}
                 </Link>
             </div>
         </MainLayout>
@@ -260,30 +222,16 @@ export default function View3DPage() {
             )}
         </div>
 
-        {/* NFT Library Selector */}
-        <div className="w-full mt-6">
-            <div className="flex justify-between items-end mb-3">
-                <h3 className="text-xs text-blue-400 uppercase tracking-widest font-bold">
-                    Subject Library ({ownedTokens.length})
-                </h3>
-                <span className="text-[10px] text-gray-600">SCROLL TO SELECT</span>
-            </div>
-            
-            <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide snap-x px-1">
-                {ownedTokens.map((token) => (
-                    <button
-                        key={token.id}
-                        onClick={() => setSelectedTokenId(token.id)}
-                        className={`relative flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden border-2 transition-all duration-300 snap-center group ${selectedTokenId === token.id ? 'border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.6)] scale-110 z-10' : 'border-white/10 hover:border-white/30 opacity-60 hover:opacity-100 grayscale hover:grayscale-0'}`}
-                    >
-                        <img src={token.image} alt={`Strain ${token.id}`} className="w-full h-full object-cover bg-black/50" />
-                        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-1">
-                            <div className={`text-[10px] text-center font-bold ${selectedTokenId === token.id ? 'text-blue-300' : 'text-gray-400'}`}>
-                                #{token.id}
-                            </div>
-                        </div>
-                    </button>
-                ))}
+        {/* Info Panel (Replaces the library selector since we only show 1 item now) */}
+        <div className="w-full mt-6 p-4 border border-blue-500/20 bg-blue-900/10 rounded-xl">
+            <div className="flex items-center gap-4">
+                <div className="h-12 w-12 rounded-lg overflow-hidden border border-white/20">
+                     {ownedTokens[0] && <img src={ownedTokens[0].image} alt="Preview" className="w-full h-full object-cover" />}
+                </div>
+                <div>
+                    <h3 className="text-sm font-bold text-blue-300">GENETIC MATCH CONFIRMED</h3>
+                    <p className="text-[10px] text-gray-400">Viewing Strain linked to Farcaster ID {targetFid}</p>
+                </div>
             </div>
         </div>
     </MainLayout>
