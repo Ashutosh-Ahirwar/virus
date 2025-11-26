@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
+import type { JSX } from 'react';
 
 function getColors(hue: number) {
   // We use CSS HSL so Three can parse it directly
