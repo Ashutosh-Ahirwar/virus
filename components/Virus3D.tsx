@@ -13,15 +13,15 @@ import {
   Sparkles,
 } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
-import type { JSX } from 'react';
 
+// Match Solidity-style HSL but as CSS strings
 function getColors(hue: number) {
-  // We use CSS HSL so Three can parse it directly
   return {
-    main: `hsl(${hue}, 70%, 40%)`,     // darker body
-    dark: `hsl(${hue}, 70%, 18%)`,     // spike base, shadows
-    glow: `hsl(${(hue + 180) % 360}, 80%, 60%)`, // ambient glow
-    accent: `hsl(${(hue + 40) % 360}, 90%, 65%)`, // nucleus + tips
+    body: `hsl(${hue}, 70%, 30%)`,                  // darker capsule
+    bodyHighlight: `hsl(${hue}, 70%, 45%)`,
+    dark: `hsl(${hue}, 70%, 14%)`,
+    glow: `hsl(${(hue + 190) % 360}, 85%, 60%)`,    // outer aura
+    accent: `hsl(${(hue + 40) % 360}, 95%, 65%)`,   // tips + core
   };
 }
 
@@ -30,9 +30,9 @@ interface Virus3DProps {
 }
 
 export function Virus3D({ tokenId }: Virus3DProps) {
-  const groupRef = useRef<THREE.Group>(null);
+  const rootRef = useRef<THREE.Group>(null);
 
-  // Match Solidity seed logic: keccak256(fid, tokenId, "VIRUS_EVO_V1")
+  // Same seed as contract: keccak256(fid, tokenId, "VIRUS_EVO_V1")
   const seedHex = keccak256(
     encodePacked(
       ['uint256', 'uint256', 'string'],
@@ -44,40 +44,40 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   const hue = Number(seed % BigInt(360));
   const colors = useMemo(() => getColors(hue), [hue]);
 
-  const spikeCount = 6 + Number(seed % BigInt(7)); // 6–12
+  const traitSpikeCount = 6 + Number(seed % BigInt(7)); // 6–12 (matches on-chain)
+  const visualSpikeCount = traitSpikeCount * 2;         // more visually dense
   const spikeStyle = Number((seed >> BigInt(12)) % BigInt(3));
   const nucleusType = Number((seed >> BigInt(4)) % BigInt(3));
   const hasAura = (seed % BigInt(10)) > BigInt(3);
 
   useFrame((state) => {
-    if (!groupRef.current) return;
+    if (!rootRef.current) return;
     const t = state.clock.getElapsedTime();
 
-    // Slow rotation + wobble
-    groupRef.current.rotation.y = t * 0.25;
-    groupRef.current.rotation.z = Math.sin(t * 0.4) * 0.2;
+    // Slow spin
+    rootRef.current.rotation.y = t * 0.3;
+    rootRef.current.rotation.x = Math.sin(t * 0.4) * 0.15;
 
-    // Breathing / pulsing
-    const s = 1 + Math.sin(t * 1.4) * 0.06;
-    groupRef.current.scale.set(s, s * 1.04, s); // slightly squashed
+    // Breathing / pulsating scale
+    const pulse = 1 + Math.sin(t * 1.6) * 0.09;
+    rootRef.current.scale.setScalar(2.4 * pulse); // bigger in the card
   });
 
   return (
     <Float
-      speed={1.2}
-      rotationIntensity={0.3}
-      floatIntensity={0.45}
-      floatingRange={[-0.08, 0.08]}
+      speed={1.4}
+      rotationIntensity={0.4}
+      floatIntensity={0.6}
+      floatingRange={[-0.1, 0.1]}
     >
-      <group ref={groupRef}>
-
-        {/* Soft aura around the virus */}
+      <group ref={rootRef}>
+        {/* --- AURA / FORCE FIELD --- */}
         {hasAura && (
-          <Sphere args={[1.6, 32, 32]}>
+          <Sphere args={[1.7, 40, 40]}>
             <meshBasicMaterial
               color={colors.glow}
               transparent
-              opacity={0.09}
+              opacity={0.12}
               side={THREE.BackSide}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
@@ -85,68 +85,77 @@ export function Virus3D({ tokenId }: Virus3DProps) {
           </Sphere>
         )}
 
-        {/* MAIN BODY / CAPSULE */}
-        <Sphere args={[0.9, 64, 64]} scale={[1.05, 1.2, 1]}>
+        {/* --- MAIN CAPSULE --- */}
+        {/* Outer distorted membrane */}
+        <Sphere args={[1.0, 64, 64]} scale={[1.1, 1.25, 1.05]}>
           <MeshDistortMaterial
-            color={colors.main}
+            color={colors.body}
             emissive={colors.dark}
             emissiveIntensity={0.9}
-            roughness={0.15}
+            distort={0.55}
+            speed={1.9}
+            roughness={0.25}
             metalness={0.7}
-            distort={0.45}
-            speed={1.8}
-            envMapIntensity={1.2}
+            envMapIntensity={1.5}
           />
         </Sphere>
 
-        {/* Inner glow layer just under the skin */}
-        <Sphere args={[0.75, 48, 48]}>
+        {/* Inner softer tissue layer */}
+        <Sphere args={[0.78, 48, 48]} scale={[1.0, 1.15, 1.0]}>
+          <meshStandardMaterial
+            color={colors.bodyHighlight}
+            emissive={colors.bodyHighlight}
+            emissiveIntensity={0.35}
+            roughness={0.7}
+            metalness={0.1}
+            transparent
+            opacity={0.25}
+          />
+        </Sphere>
+
+        {/* Internal glow */}
+        <Sphere args={[0.65, 40, 40]}>
           <meshStandardMaterial
             color={colors.glow}
             emissive={colors.glow}
-            emissiveIntensity={0.5}
+            emissiveIntensity={0.7}
             transparent
-            opacity={0.25}
-            roughness={0.5}
-            metalness={0.1}
+            opacity={0.22}
             blending={THREE.AdditiveBlending}
+            depthWrite={false}
           />
         </Sphere>
 
-        {/* Bio-luminescent core light */}
         <pointLight
           position={[0, 0, 0]}
-          intensity={2.2}
+          intensity={2.5}
           color={colors.glow}
-          distance={4}
+          distance={5}
           decay={2}
         />
 
-        {/* SPIKES */}
+        {/* --- SPIKES --- */}
         <Spikes
-          count={spikeCount}
+          count={visualSpikeCount}
           style={spikeStyle}
           colors={colors}
           seed={Number(seed % BigInt(1_000_000))}
         />
 
-        {/* NUCLEUS */}
+        {/* --- NUCLEUS / CORE --- */}
         <Nucleus type={nucleusType} color={colors.accent} />
 
-        {/* DNA-like helix inside */}
+        {/* --- DNA HELIX + ORBITING PARTICLES --- */}
         <Helix color={colors.accent} />
+        <OrbitingSpores color={colors.accent} />
 
-        {/* Rotating outer rings / field lines */}
-        <FieldRings color={colors.glow} />
-
-        {/* Tiny floating particles */}
         <Sparkles
-          count={40}
-          size={0.35}
-          speed={0.35}
+          count={50}
+          size={0.4}
+          speed={0.4}
           opacity={0.45}
-          scale={3}
-          color={colors.accent}
+          scale={4}
+          color={colors.glow}
         />
       </group>
     </Float>
@@ -154,6 +163,8 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 }
 
 /* ---------------- SPIKES ---------------- */
+
+type ColorSet = ReturnType<typeof getColors>;
 
 function Spikes({
   count,
@@ -163,14 +174,14 @@ function Spikes({
 }: {
   count: number;
   style: number;
-  colors: ReturnType<typeof getColors>;
+  colors: ColorSet;
   seed: number;
 }) {
   const spikesRef = useRef<THREE.Group[]>([]);
 
   const spikeData = useMemo(() => {
-    const data: { position: THREE.Vector3; rotation: THREE.Euler; length: number }[] = [];
-    const radius = 0.9;
+    const data: { pos: THREE.Vector3; rot: THREE.Euler; len: number }[] = [];
+    const radius = 1.05;
     const phi = (1 + Math.sqrt(5)) / 2;
 
     for (let i = 0; i < count; i++) {
@@ -181,19 +192,18 @@ function Spikes({
       const y = radius * Math.sin(phiAng) * Math.sin(theta);
       const z = radius * Math.cos(phiAng);
 
-      const base = new THREE.Vector3(x, y, z);
-      const rotation = new THREE.Euler();
-      rotation.setFromQuaternion(
+      const pos = new THREE.Vector3(x, y, z);
+
+      const rot = new THREE.Euler();
+      rot.setFromQuaternion(
         new THREE.Quaternion().setFromUnitVectors(
           new THREE.Vector3(0, 1, 0),
-          base.clone().normalize()
+          pos.clone().normalize()
         )
       );
 
-      // Slight irregularity per spike based on seed
-      const rand =
-        ((Math.sin(seed + i * 13.37) + 1) / 2) * 0.5 + 0.8; // ~0.8–1.3
-      data.push({ position: base.multiplyScalar(1.02), rotation, length: rand });
+      const rand = ((Math.sin(seed + i * 17.13) + 1) / 2) * 0.7 + 0.9; // 0.9–1.6
+      data.push({ pos: pos.multiplyScalar(1.05), rot, len: rand });
     }
     return data;
   }, [count, seed]);
@@ -202,53 +212,53 @@ function Spikes({
     const t = state.clock.getElapsedTime();
     spikesRef.current.forEach((g, i) => {
       if (!g) return;
-      const jitter = Math.sin(t * 3 + i * 1.7) * 0.12;
-      g.rotation.z += jitter * 0.01;
-      g.rotation.y += jitter * 0.01;
+      const wobble = Math.sin(t * 3 + i * 0.8) * 0.15;
+      g.rotation.z += wobble * 0.015;
+      g.rotation.y += wobble * 0.015;
     });
   });
 
-  const SpikeGeometry: React.FC<{ length: number }> = ({ length }) => {
+  const SpikeGeom: React.FC<{ len: number }> = ({ len }) => {
     if (style === 0) {
-      // Protein club
+      // Thick club spike
       return (
         <group>
-          <Cylinder args={[0.05, 0.04, 0.6 * length, 10]} position={[0, 0.3 * length, 0]}>
+          <Cylinder args={[0.07, 0.06, 0.7 * len, 10]} position={[0, 0.35 * len, 0]}>
             <meshStandardMaterial
               color={colors.dark}
               roughness={0.6}
               metalness={0.35}
             />
           </Cylinder>
-          <Sphere args={[0.1 * length, 18, 18]} position={[0, 0.65 * length, 0]}>
+          <Sphere args={[0.14 * len, 18, 18]} position={[0, 0.75 * len, 0]}>
             <meshStandardMaterial
               color={colors.accent}
               emissive={colors.accent}
-              emissiveIntensity={0.7}
-              roughness={0.1}
-              metalness={0.6}
+              emissiveIntensity={0.9}
+              roughness={0.15}
+              metalness={0.7}
             />
           </Sphere>
         </group>
       );
     } else if (style === 1) {
-      // Needle
+      // Needle injector
       return (
         <group>
-          <Sphere args={[0.07, 12, 12]} position={[0, 0.04, 0]}>
+          <Sphere args={[0.08, 16, 16]} position={[0, 0.06, 0]}>
             <meshStandardMaterial
               color={colors.dark}
               metalness={0.8}
               roughness={0.2}
             />
           </Sphere>
-          <Cylinder args={[0.01, 0.07, 0.75 * length, 10]} position={[0, 0.4 * length, 0]}>
+          <Cylinder args={[0.015, 0.085, 0.9 * len, 10]} position={[0, 0.48 * len, 0]}>
             <meshStandardMaterial
               color={colors.accent}
               emissive={colors.accent}
-              emissiveIntensity={0.4}
+              emissiveIntensity={0.5}
               metalness={1}
-              roughness={0.15}
+              roughness={0.2}
             />
           </Cylinder>
         </group>
@@ -257,22 +267,22 @@ function Spikes({
       // Antenna receptor
       return (
         <group>
-          <Cylinder args={[0.02, 0.02, 0.55 * length, 12]} position={[0, 0.28 * length, 0]}>
+          <Cylinder args={[0.025, 0.025, 0.7 * len, 12]} position={[0, 0.35 * len, 0]}>
             <meshStandardMaterial
               color={colors.accent}
               emissive={colors.accent}
-              emissiveIntensity={0.3}
+              emissiveIntensity={0.4}
             />
           </Cylinder>
           <Torus
-            args={[0.12 * length, 0.025, 16, 32]}
-            position={[0, 0.62 * length, 0]}
+            args={[0.14 * len, 0.03, 16, 32]}
+            position={[0, 0.75 * len, 0]}
             rotation={[Math.PI / 2, 0, 0]}
           >
             <meshStandardMaterial
               color={colors.accent}
               emissive={colors.accent}
-              emissiveIntensity={0.9}
+              emissiveIntensity={1}
               metalness={0.6}
             />
           </Torus>
@@ -289,133 +299,129 @@ function Spikes({
           ref={(el) => {
             if (el) spikesRef.current[i] = el;
           }}
-          position={s.position}
-          rotation={s.rotation}
+          position={s.pos}
+          rotation={s.rot}
         >
-          <SpikeGeometry length={s.length} />
+          <SpikeGeom len={s.len} />
         </group>
       ))}
     </group>
   );
 }
 
-/* ---------------- NUCLEUS ---------------- */
+/* ---------------- CORE & DNA ---------------- */
 
 function Nucleus({ type, color }: { type: number; color: string }) {
+  const ref = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+    if (!ref.current) return;
+    ref.current.rotation.y = t * 0.7;
+    ref.current.rotation.x = Math.sin(t * 0.9) * 0.4;
+  });
+
+  const matProps = {
+    color,
+    emissive: color,
+    emissiveIntensity: 1.2,
+    transparent: true,
+    opacity: 0.95,
+    roughness: 0.2,
+    metalness: 0.6,
+    blending: THREE.AdditiveBlending,
+  };
+
   if (type === 0) {
     return (
-      <Sphere args={[0.28, 32, 32]}>
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={1.1}
-          transparent
-          opacity={0.85}
-          roughness={0.25}
-          metalness={0.4}
-          blending={THREE.AdditiveBlending}
-        />
+      <Sphere ref={ref} args={[0.3, 32, 32]}>
+        <meshStandardMaterial {...matProps} />
       </Sphere>
     );
   } else if (type === 1) {
     return (
-      <RoundedBox args={[0.38, 0.38, 0.38]} radius={0.12} smoothness={5}>
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={1}
-          transparent
-          opacity={0.9}
-          roughness={0.3}
-          metalness={0.5}
-          blending={THREE.AdditiveBlending}
-        />
+      <RoundedBox ref={ref} args={[0.42, 0.42, 0.42]} radius={0.16} smoothness={6}>
+        <meshStandardMaterial {...matProps} />
       </RoundedBox>
     );
   } else {
     return (
-      <Torus args={[0.25, 0.07, 16, 64]}>
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={1.2}
-          transparent
-          opacity={0.95}
-          roughness={0.2}
-          metalness={0.7}
-          blending={THREE.AdditiveBlending}
-        />
+      <Torus ref={ref} args={[0.27, 0.08, 18, 64]}>
+        <meshStandardMaterial {...matProps} />
       </Torus>
     );
   }
 }
 
-/* ---------------- HELIX / DNA STRAND ---------------- */
-
 function Helix({ color }: { color: string }) {
-  const points: JSX.Element[] = [];
-  const turns = 2.5;
-  const segments = 40;
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+    if (!groupRef.current) return;
+    groupRef.current.rotation.y = -t * 0.8;
+  });
+
+  const beads: React.ReactElement[] = [];
+  const turns = 2.3;
+  const segments = 34;
 
   for (let i = 0; i < segments; i++) {
     const t = (i / (segments - 1)) * turns * Math.PI * 2;
-    const y = (i / (segments - 1) - 0.5) * 0.5;
-    const r = 0.17;
+    const y = (i / (segments - 1) - 0.5) * 0.55;
+    const r = 0.18;
     const x = Math.cos(t) * r;
     const z = Math.sin(t) * r;
 
-    points.push(
+    beads.push(
       <Sphere key={i} args={[0.03, 12, 12]} position={[x, y, z]}>
         <meshStandardMaterial
           color={color}
           emissive={color}
-          emissiveIntensity={0.7}
-          roughness={0.2}
-          metalness={0.6}
+          emissiveIntensity={0.8}
+          roughness={0.3}
+          metalness={0.5}
         />
       </Sphere>
     );
   }
 
-  return <group>{points}</group>;
+  return <group ref={groupRef}>{beads}</group>;
 }
 
-/* ---------------- FIELD RINGS ---------------- */
-
-function FieldRings({ color }: { color: string }) {
-  const ringRef1 = useRef<THREE.Mesh>(null);
-  const ringRef2 = useRef<THREE.Mesh>(null);
+function OrbitingSpores({ color }: { color: string }) {
+  const ref = useRef<THREE.Group>(null);
 
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
-    if (ringRef1.current) {
-      ringRef1.current.rotation.y = t * 0.4;
-      ringRef1.current.rotation.x = Math.sin(t * 0.3) * 0.4;
-    }
-    if (ringRef2.current) {
-      ringRef2.current.rotation.y = -t * 0.35;
-      ringRef2.current.rotation.z = Math.cos(t * 0.27) * 0.4;
-    }
+    if (!ref.current) return;
+    ref.current.rotation.y = t * 0.5;
+    ref.current.rotation.x = Math.sin(t * 0.3) * 0.4;
   });
 
   return (
-    <group>
-      <Torus ref={ringRef1} args={[1.1, 0.015, 16, 64]}>
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.35}
-          blending={THREE.AdditiveBlending}
-        />
-      </Torus>
-      <Torus ref={ringRef2} args={[1.05, 0.02, 16, 64]} rotation={[Math.PI / 2.5, 0, 0]}>
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.25}
-          blending={THREE.AdditiveBlending}
-        />
-      </Torus>
+    <group ref={ref}>
+      {[0, 1, 2, 3].map((i) => {
+        const angle = (i / 4) * Math.PI * 2;
+        const r = 1.35;
+        const x = Math.cos(angle) * r;
+        const z = Math.sin(angle) * r;
+        const y = (i % 2 === 0 ? 0.25 : -0.25);
+
+        return (
+          <Sphere key={i} args={[0.09, 16, 16]} position={[x, y, z]}>
+            <meshStandardMaterial
+              color={color}
+              emissive={color}
+              emissiveIntensity={0.6}
+              roughness={0.4}
+              metalness={0.4}
+              transparent
+              opacity={0.85}
+            />
+          </Sphere>
+        );
+      })}
     </group>
   );
 }
