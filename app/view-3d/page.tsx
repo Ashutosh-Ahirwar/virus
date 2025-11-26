@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { Virus3D } from '@/components/Virus3D';
-import { DnaBackground } from '@/components/DnaBackground'; // Import new background
+import { DnaBackground } from '@/components/DnaBackground';
 
 const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x60fcA7d0b0585937C451bd043f5259Bf72F08358") as `0x${string}`;
 
@@ -119,6 +119,7 @@ export default function View3DPage() {
     connectAndFetch();
   }, []);
 
+  // ... Loading States (Same as before) ...
   if (loadingState !== 'ready' && loadingState !== 'no-assets' && loadingState !== 'error') {
     return (
         <MainLayout>
@@ -190,20 +191,20 @@ export default function View3DPage() {
                         preserveDrawingBuffer: true,
                     }}
                 >
-                    <PerspectiveCamera makeDefault position={[0, 0, 8]} fov={50} />
+                    {/* CHANGED: Z position increased to 16 for wider view */}
+                    <PerspectiveCamera makeDefault position={[0, 0, 16]} fov={50} />
                     
-                    {/* Deep Blue Background Color */}
+                    {/* Dark Blue-Black Background */}
                     <color attach="background" args={['#000510']} />
                     
-                    {/* Blue Fog to blend Background DNA */}
-                    <fog attach="fog" args={['#000510', 5, 20]} />
+                    <fog attach="fog" args={['#000510', 10, 30]} />
                     
-                    {/* Lighting - Cool blue tones */}
-                    <ambientLight intensity={0.2} />
-                    <spotLight position={[10, 10, 10]} angle={0.5} penumbra={1} intensity={2} color="#00ffff" />
-                    <pointLight position={[-10, -10, -10]} intensity={1} color="#0040ff" />
+                    {/* Neutral lighting to allow Seed Color to pop */}
+                    <ambientLight intensity={0.4} />
+                    <spotLight position={[10, 10, 10]} angle={0.5} penumbra={1} intensity={1} color="#ffffff" />
+                    <pointLight position={[-10, -5, -5]} intensity={0.5} color="#ffffff" />
                     
-                    {/* NEW DNA BACKGROUND */}
+                    {/* Background DNA */}
                     <DnaBackground />
 
                     <Suspense fallback={null}>
@@ -214,8 +215,9 @@ export default function View3DPage() {
                         enablePan={false} 
                         minPolarAngle={Math.PI / 4} 
                         maxPolarAngle={Math.PI / 1.5}
-                        minDistance={4}
-                        maxDistance={12}
+                        // CHANGED: Increased distances to prevent zoom-in issues
+                        minDistance={8}
+                        maxDistance={25}
                         autoRotate
                         autoRotateSpeed={0.5}
                     />
@@ -243,7 +245,6 @@ function MainLayout({ children }: { children: React.ReactNode }) {
       <main className="relative flex min-h-screen flex-col items-center bg-black text-white font-mono p-4">
         {/* Scan lines overlay */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-20 pointer-events-none bg-[length:100%_4px,3px_100%]"></div>
-        
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-black to-black z-0 pointer-events-none"></div>
   
         <div className="z-10 w-full max-w-2xl flex flex-col flex-1 gap-4 relative">

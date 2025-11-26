@@ -3,14 +3,10 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Float, Icosahedron, Sphere, Sparkles } from '@react-three/drei';
+import { Float, Sparkles } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
 
-// --- LORE ARRAYS (STRICT MATCH) ---
 const ALIGNMENTS = ['Symbiotic', 'Parasitic'] as const;
-// Logic placeholders to ensure seed consumption matches Solidity exactly
-const MUTATIONS_SYM = ['Neural-Linker', 'Muscle-Weaver', 'Cell-Regenerator', 'Gene-Purifier'] as const;
-const MUTATIONS_PAR = ['Void-Rot', 'Blood-Boil', 'Neural-Decay', 'Cell-Rupture'] as const;
 
 type Alignment = (typeof ALIGNMENTS)[number];
 
@@ -18,28 +14,24 @@ interface Virus3DProps {
   tokenId: number;
 }
 
-// --- MICROSCOPE PALETTE ---
-// Adjusted to look like the blue/cyan electron microscope image provided
+// --- COLOR PALETTE (Strictly derived from Seed Hue) ---
 function getPalette(hue: number, alignment: Alignment) {
-  const isPara = alignment === 'Parasitic';
-  
-  // Base is always that "science blue" from the image, shifted slightly by NFT trait
   return {
-    // The core color (darker inside)
-    core: isPara ? '#001a33' : '#002233', 
-    // The granular surface (cyan/blue/teal)
-    surface: `hsl(${180 + (hue % 40)}, 80%, 50%)`,
-    // The tips/highlights
-    highlight: isPara ? '#ff0055' : '#00ffcc',
-    // The atmosphere
-    glow: `hsl(${190 + (hue % 20)}, 90%, 60%)`,
+    // The main body color (EXACT hue from seed)
+    primary: `hsl(${hue}, 85%, 50%)`,
+    // A lighter glow for the tips/aura
+    highlight: `hsl(${hue}, 100%, 75%)`,
+    // Inner core color (complementary or darker version)
+    core: `hsl(${(hue + 180) % 360}, 50%, 40%)`,
+    // Particle opacity varies by alignment (Parasitic is denser/darker)
+    opacity: alignment === 'Parasitic' ? 0.9 : 0.6,
   };
 }
 
 export function Virus3D({ tokenId }: Virus3DProps) {
   const rootRef = useRef<THREE.Group>(null);
 
-  // === 1. TRAIT GENERATION (Strict Match) ===
+  // === 1. METADATA GENERATION ===
   const seedHex = keccak256(
     encodePacked(
       ['uint256', 'uint256', 'string'],
@@ -49,9 +41,11 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   const seed = BigInt(seedHex);
   const hue = Number(seed % 360n);
   
+  // STRICT METADATA: 6 + (seed % 7) spikes
   const spikeCount = 6 + Number(seed % 7n); 
   const alignIdx = Number((seed >> 8n) % 2n);
-  const alignment: Alignment = ALIGNMENTS[alignIdx];
+  const alignment = ALIGNMENTS[alignIdx];
+  
   const palette = useMemo(() => getPalette(hue, alignment), [hue, alignment]);
 
   // === 2. ANIMATION ===
@@ -59,66 +53,94 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     const t = state.clock.getElapsedTime();
     if (!rootRef.current) return;
 
-    // Slow organic rotation
-    rootRef.current.rotation.y = t * 0.1;
-    rootRef.current.rotation.z = Math.sin(t * 0.2) * 0.05;
+    // Slow, heavy rotation
+    rootRef.current.rotation.y = t * 0.12;
+    rootRef.current.rotation.z = Math.sin(t * 0.15) * 0.08;
 
-    // Breathing
-    const pulse = 1 + Math.sin(t * 1.5) * 0.02;
-    rootRef.current.scale.setScalar(1.5 * pulse);
+    // "Breathing" pulse
+    const pulseSpeed = alignment === 'Parasitic' ? 2.0 : 1.2;
+    const scaleVar = 1 + Math.sin(t * pulseSpeed) * 0.03;
+    rootRef.current.scale.setScalar(scaleVar); 
   });
 
   return (
-    <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
+    <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
-        <GranularBody palette={palette} />
-        <SpikeArray count={spikeCount} alignment={alignment} palette={palette} seed={Number(seed % 100000n)} />
+        <ParticleBody palette={palette} />
+        <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
       </group>
     </Float>
   );
 }
 
-// --- SUB-COMPONENTS FOR "MICROSCOPE" LOOK ---
+// --- SUB-COMPONENTS (PARTICLE SYSTEMS) ---
 
-// 1. The Body: Renders as POINTS to match the grainy texture image
-function GranularBody({ palette }: { palette: any }) {
+function ParticleBody({ palette }: { palette: any }) {
+  // Generate random points on/in a sphere for that "fuzzy" look
+  const particles = useMemo(() => {
+    const count = 3500; // High density for texture
+    const pos = new Float32Array(count * 3);
+    
+    for (let i = 0; i < count; i++) {
+      // Uniform distribution on sphere surface
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      // Add slight noise to radius for "fuzz" (0.95 to 1.05)
+      const r = 0.95 + Math.random() * 0.1; 
+      
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
+      
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = y;
+      pos[i * 3 + 2] = z;
+    }
+    return pos;
+  }, []);
+
   return (
     <group>
-      {/* Inner dark occlusion sphere to block light */}
-      <Sphere args={[0.95, 32, 32]}>
-         <meshBasicMaterial color="#000" />
-      </Sphere>
+      {/* Black occlusion sphere to hide back-facing particles (gives depth) */}
+      <mesh>
+        <sphereGeometry args={[0.9, 32, 32]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
 
-      {/* Layer 1: Dense Points (The Texture) */}
+      {/* The Particle Cloud */}
       <points>
-        {/* Icosahedron gives a nice triangulated distribution */}
-        <icosahedronGeometry args={[1, 16]} /> 
-        <pointsMaterial 
-          color={palette.surface} 
-          size={0.015} // Tiny dots
-          sizeAttenuation={true} 
-          transparent 
-          opacity={0.8}
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            count={particles.length / 3}
+            array={particles}
+            itemSize={3}
+            args={[particles, 3]} // REQUIRED for TypeScript
+          />
+        </bufferGeometry>
+        <pointsMaterial
+          color={palette.primary}
+          size={0.035} // Small dots
+          transparent
+          opacity={palette.opacity}
+          sizeAttenuation={true}
           blending={THREE.AdditiveBlending}
+          depthWrite={false}
         />
       </points>
-
-      {/* Layer 2: Faint Halo Shell */}
-      <Sphere args={[1.05, 64, 64]}>
-        <meshBasicMaterial 
-          color={palette.glow} 
-          transparent 
-          opacity={0.1} 
-          wireframe
-        />
-      </Sphere>
+      
+      {/* Faint outer glow shell */}
+      <mesh>
+        <sphereGeometry args={[1.0, 32, 32]} />
+        <meshBasicMaterial color={palette.primary} transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
     </group>
   );
 }
 
-// 2. The Spikes: "Club" shaped like the image, also grainy
-function SpikeArray({ count, seed, palette }: { count: number, seed: number, palette: any, alignment: Alignment }) {
+function ParticleSpikes({ count, palette }: { count: number, palette: any, seed: number }) {
+  // Position spikes using Fibonacci sphere algorithm
   const spikes = useMemo(() => {
     const temp = [];
     const phi = Math.PI * (3 - Math.sqrt(5)); 
@@ -128,6 +150,7 @@ function SpikeArray({ count, seed, palette }: { count: number, seed: number, pal
       const theta = phi * i;
       const x = Math.cos(theta) * radius;
       const z = Math.sin(theta) * radius;
+      
       const pos = new THREE.Vector3(x, y, z).normalize();
       const rot = new THREE.Euler().setFromQuaternion(
         new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos)
@@ -141,42 +164,82 @@ function SpikeArray({ count, seed, palette }: { count: number, seed: number, pal
     <group>
       {spikes.map((s, i) => (
         <group key={i} position={s.pos} rotation={s.rot}>
-           <GranularSpike palette={palette} />
+          <SingleSpikeCloud palette={palette} />
         </group>
       ))}
     </group>
   );
 }
 
-function GranularSpike({ palette }: { palette: any }) {
-  return (
-    <group position={[0, 0.95, 0]}> 
-       {/* The Stalk */}
-       <points position={[0, 0.15, 0]}>
-         <cylinderGeometry args={[0.08, 0.12, 0.3, 8, 4]} />
-         <pointsMaterial color={palette.surface} size={0.015} transparent opacity={0.6} />
-       </points>
+function SingleSpikeCloud({ palette }: { palette: any }) {
+  // Create a volumetric cloud for the spike (cylinder + club head)
+  const particles = useMemo(() => {
+    const pCount = 200;
+    const pos = new Float32Array(pCount * 3);
+    
+    for(let i=0; i<pCount; i++) {
+      // 70% of points in the stalk, 30% in the head
+      const isHead = Math.random() > 0.7;
+      
+      let x, y, z;
+      if (isHead) {
+        // Head: Sphere at top
+        const r = 0.2 * Math.cbrt(Math.random()); // uniform sphere
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        x = r * Math.sin(phi) * Math.cos(theta);
+        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5; // Offset up
+        z = r * Math.cos(phi);
+      } else {
+        // Stalk: Cylinder
+        const r = 0.06 * Math.sqrt(Math.random());
+        const theta = Math.random() * Math.PI * 2;
+        const h = Math.random() * 0.5; // height 0 to 0.5
+        x = r * Math.cos(theta);
+        y = h;
+        z = r * Math.sin(theta);
+      }
+      pos[i*3] = x;
+      pos[i*3+1] = y;
+      pos[i*3+2] = z;
+    }
+    return pos;
+  }, []);
 
-       {/* The "Mushroom" Head (Club shape) */}
-       <group position={[0, 0.35, 0]}>
-          <points>
-            <sphereGeometry args={[0.18, 12, 12]} />
-            <pointsMaterial color={palette.highlight} size={0.02} transparent opacity={0.8} blending={THREE.AdditiveBlending} />
-          </points>
-          {/* Inner solid part to make it look dense */}
-          <Sphere args={[0.15, 8, 8]}>
-             <meshBasicMaterial color={palette.surface} opacity={0.5} transparent />
-          </Sphere>
-       </group>
+  return (
+    <group position={[0, 0.9, 0]}>
+      <points>
+        <bufferGeometry>
+           <bufferAttribute 
+              attach="attributes-position" 
+              count={particles.length/3} 
+              array={particles} 
+              itemSize={3}
+              args={[particles, 3]} 
+            />
+        </bufferGeometry>
+        <pointsMaterial 
+          color={palette.highlight} 
+          size={0.03} 
+          transparent 
+          opacity={0.8} 
+          sizeAttenuation 
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
     </group>
-  )
+  );
 }
 
 function Atmosphere({ palette }: { palette: any }) {
   return (
-    <group>
-       {/* Floating particulates from the image */}
-       <Sparkles count={80} scale={2.5} size={2} speed={0.2} opacity={0.4} color={palette.glow} />
-    </group>
-  )
+    <Sparkles 
+      count={60} 
+      scale={3.5} 
+      size={3} 
+      speed={0.2} 
+      opacity={0.4} 
+      color={palette.highlight} 
+    />
+  );
 }
