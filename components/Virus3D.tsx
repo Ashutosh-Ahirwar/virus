@@ -4,7 +4,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { MeshDistortMaterial, Sphere, Cylinder, Torus, Box, RoundedBox, Instance, Instances, Float, Sparkles } from '@react-three/drei';
+import { MeshDistortMaterial, Sphere, Cylinder, Torus, RoundedBox, Float, Sparkles } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
 
 // --- Helpers to match Solidity HSL Logic in Three.js ---
@@ -27,16 +27,18 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   const groupRef = useRef<THREE.Group>(null);
 
   // 1. REPLICATE SOLIDITY SEED GENERATION EXACTLY
-  const seedHex = keccak256(encodePacked(
-    ['uint256', 'uint256', 'string'],
-    [BigInt(tokenId), BigInt(tokenId), "VIRUS_EVO_V1"]
-  ));
+  const seedHex = keccak256(
+    encodePacked(
+      ['uint256', 'uint256', 'string'],
+      [BigInt(tokenId), BigInt(tokenId), 'VIRUS_EVO_V1']
+    )
+  );
   const seed = BigInt(seedHex);
 
-  // 2. DERIVE PARAMETERS FROM SEED (Using BigInt constructor instead of literals)
+  // 2. DERIVE PARAMETERS FROM SEED
   const hue = Number(seed % BigInt(360));
   const colors = useMemo(() => getColors(hue), [hue]);
-  
+
   // 6 + (seed % 7)
   const spikeCount = 6 + Number(seed % BigInt(7));
   // (seed >> 12) % 3
@@ -55,25 +57,28 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   });
 
   return (
-    <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.5} floatingRange={[-0.1, 0.1]}>
+    <Float
+      speed={1.5}
+      rotationIntensity={0.2}
+      floatIntensity={0.5}
+      floatingRange={[-0.1, 0.1]}
+    >
       <group ref={groupRef} scale={1.6}>
-        
         {/* --- AURA LAYER --- */}
         {hasAura && (
           <Sphere args={[1.5, 32, 32]}>
-            <meshBasicMaterial 
-                color={colors.glow} 
-                transparent 
-                opacity={0.07} 
-                side={THREE.BackSide} 
-                blending={THREE.AdditiveBlending} 
-                depthWrite={false}
+            <meshBasicMaterial
+              color={colors.glow}
+              transparent
+              opacity={0.07}
+              side={THREE.BackSide}
+              blending={THREE.AdditiveBlending}
+              depthWrite={false}
             />
           </Sphere>
         )}
 
         {/* --- MAIN BODY (Capsid) --- */}
-        {/* Using a distorted sphere for organic viral look */}
         <Sphere args={[0.85, 64, 64]}>
           <MeshDistortMaterial
             color={colors.main}
@@ -85,11 +90,24 @@ export function Virus3D({ tokenId }: Virus3DProps) {
             speed={1.5}
           />
         </Sphere>
-        
+
         {/* Internal Bio-luminescence */}
-        <pointLight position={[0,0,0]} intensity={1.5} color={colors.glow} distance={4} decay={2} />
+        <pointLight
+          position={[0, 0, 0]}
+          intensity={1.5}
+          color={colors.glow}
+          distance={4}
+          decay={2}
+        />
         <Sphere args={[0.7, 32, 32]}>
-            <meshStandardMaterial color={colors.glow} emissive={colors.glow} emissiveIntensity={0.5} transparent opacity={0.3} blending={THREE.AdditiveBlending} />
+          <meshStandardMaterial
+            color={colors.glow}
+            emissive={colors.glow}
+            emissiveIntensity={0.5}
+            transparent
+            opacity={0.3}
+            blending={THREE.AdditiveBlending}
+          />
         </Sphere>
 
         {/* --- SPIKES --- */}
@@ -99,94 +117,160 @@ export function Virus3D({ tokenId }: Virus3DProps) {
         <Nucleus type={nucleusType} color={colors.accent} />
 
         {/* Tiny floating particles around the virus */}
-        <Sparkles count={30} scale={2.5} size={0.4} speed={0.2} color={colors.accent} opacity={0.5} />
+        <Sparkles
+          count={30}
+          scale={2.5}
+          size={0.4}
+          speed={0.2}
+          color={colors.accent}
+          opacity={0.5}
+        />
       </group>
     </Float>
   );
 }
 
-// --- Sub-component: Spikes (using Instancing for performance) ---
-function Spikes({ count, style, colors }: { count: number, style: number, colors: any }) {
+// --- Sub-component: Spikes (simple groups instead of Instances) ---
+function Spikes({
+  count,
+  style,
+  colors,
+}: {
+  count: number;
+  style: number;
+  colors: ReturnType<typeof getColors>;
+}) {
   const spikeData = useMemo(() => {
-    const data = [];
+    const data: { position: THREE.Vector3; rotation: THREE.Euler }[] = [];
     const radius = 0.82; // Position on surface
     const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio for even spherical distribution
 
     for (let i = 0; i < count; i++) {
-      const theta = 2 * Math.PI * i / phi;
-      const phiAng = Math.acos(1 - 2 * (i + 0.5) / count);
+      const theta = (2 * Math.PI * i) / phi;
+      const phiAng = Math.acos(1 - (2 * (i + 0.5)) / count);
 
       const x = radius * Math.sin(phiAng) * Math.cos(theta);
       const y = radius * Math.sin(phiAng) * Math.sin(theta);
       const z = radius * Math.cos(phiAng);
-      
+
       const position = new THREE.Vector3(x, y, z);
-      // Calculate rotation so spike points outwards from center
       const rotation = new THREE.Euler();
-      const up = new THREE.Vector3(0, 1, 0); // Assuming spike geometry is built along Y axis
-      rotation.setFromQuaternion(new THREE.Quaternion().setFromUnitVectors(up, position.clone().normalize()));
+      const up = new THREE.Vector3(0, 1, 0);
+
+      rotation.setFromQuaternion(
+        new THREE.Quaternion().setFromUnitVectors(
+          up,
+          position.clone().normalize()
+        )
+      );
 
       data.push({ position, rotation });
     }
     return data;
   }, [count]);
 
-  // Define geometry based on style index
-  let SpikeGeometry: React.FC<any>;
-  if (style === 0) { // Style 0: Protein Stalk
-    SpikeGeometry = () => (
-      <group>
-        {/* Stalk */}
-        <Cylinder args={[0.05, 0.03, 0.5]} position={[0, 0.25, 0]}>
-          <meshStandardMaterial color={colors.dark} roughness={0.6} metalness={0.2} />
-        </Cylinder>
-        {/* Bulb tip */}
-        <Sphere args={[0.09, 16, 16]} position={[0, 0.5, 0]}>
-          <meshStandardMaterial color={colors.accent} emissive={colors.accent} emissiveIntensity={0.5} roughness={0.1} metalness={0.5} />
-        </Sphere>
-      </group>
-    );
-  } else if (style === 1) { // Style 1: Needle Injector
-    SpikeGeometry = () => (
-      <group>
-        {/* Base joint */}
-        <Sphere args={[0.07]} position={[0, 0.05, 0]}>
-          <meshStandardMaterial color={colors.dark} metalness={0.7} roughness={0.2} />
-        </Sphere>
-        {/* Sharp needle */}
-        <Cylinder args={[0.005, 0.06, 0.6, 8]} position={[0, 0.35, 0]}>
-            <meshStandardMaterial color={colors.accent} roughness={0.1} metalness={1} emissive={colors.accent} emissiveIntensity={0.2} />
-        </Cylinder>
-      </group>
-    );
-  } else { // Style 2: Antenna Receptor
-    SpikeGeometry = () => (
-      <group>
-        {/* Thin shaft */}
-        <Cylinder args={[0.02, 0.02, 0.5]} position={[0, 0.25, 0]}>
-          <meshStandardMaterial color={colors.accent} emissive={colors.accent} emissiveIntensity={0.3} />
-        </Cylinder>
-        {/* Torus receiver dish */}
-        <Torus args={[0.1, 0.02, 16, 32]} position={[0, 0.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <meshStandardMaterial color={colors.accent} emissive={colors.accent} emissiveIntensity={0.8} />
-        </Torus>
-      </group>
-    );
-  }
+  // Individual spike geometry by style
+  const SpikeGeometry: React.FC = () => {
+    if (style === 0) {
+      // Style 0: Protein Stalk
+      return (
+        <group>
+          {/* Stalk */}
+          <Cylinder args={[0.05, 0.03, 0.5]} position={[0, 0.25, 0]}>
+            <meshStandardMaterial
+              color={colors.dark}
+              roughness={0.6}
+              metalness={0.2}
+            />
+          </Cylinder>
+          {/* Bulb tip */}
+          <Sphere args={[0.09, 16, 16]} position={[0, 0.5, 0]}>
+            <meshStandardMaterial
+              color={colors.accent}
+              emissive={colors.accent}
+              emissiveIntensity={0.5}
+              roughness={0.1}
+              metalness={0.5}
+            />
+          </Sphere>
+        </group>
+      );
+    } else if (style === 1) {
+      // Style 1: Needle Injector
+      return (
+        <group>
+          {/* Base joint */}
+          <Sphere args={[0.07]} position={[0, 0.05, 0]}>
+            <meshStandardMaterial
+              color={colors.dark}
+              metalness={0.7}
+              roughness={0.2}
+            />
+          </Sphere>
+          {/* Sharp needle */}
+          <Cylinder args={[0.005, 0.06, 0.6, 8]} position={[0, 0.35, 0]}>
+            <meshStandardMaterial
+              color={colors.accent}
+              roughness={0.1}
+              metalness={1}
+              emissive={colors.accent}
+              emissiveIntensity={0.2}
+            />
+          </Cylinder>
+        </group>
+      );
+    } else {
+      // Style 2: Antenna Receptor
+      return (
+        <group>
+          {/* Thin shaft */}
+          <Cylinder args={[0.02, 0.02, 0.5]} position={[0, 0.25, 0]}>
+            <meshStandardMaterial
+              color={colors.accent}
+              emissive={colors.accent}
+              emissiveIntensity={0.3}
+            />
+          </Cylinder>
+          {/* Torus receiver dish */}
+          <Torus
+            args={[0.1, 0.02, 16, 32]}
+            position={[0, 0.55, 0]}
+            rotation={[Math.PI / 2, 0, 0]}
+          >
+            <meshStandardMaterial
+              color={colors.accent}
+              emissive={colors.accent}
+              emissiveIntensity={0.8}
+            />
+          </Torus>
+        </group>
+      );
+    }
+  };
 
   return (
-    <Instances range={count}>
-      <SpikeGeometry />
+    <group>
       {spikeData.map((props, i) => (
-        <Instance key={i} position={props.position} rotation={props.rotation} />
+        <group
+          key={i}
+          position={props.position}
+          rotation={props.rotation}
+        >
+          <SpikeGeometry />
+        </group>
       ))}
-    </Instances>
+    </group>
   );
 }
 
 // --- Sub-component: Nucleus Core ---
-function Nucleus({ type, color }: { type: number, color: THREE.Color }) {
-  // Create the material prop object to pass down
+function Nucleus({
+  type,
+  color,
+}: {
+  type: number;
+  color: THREE.Color;
+}) {
   const materialProps = {
     color: color,
     emissive: color,
@@ -196,19 +280,29 @@ function Nucleus({ type, color }: { type: number, color: THREE.Color }) {
     roughness: 0.3,
     metalness: 0.2,
     blending: THREE.AdditiveBlending,
-    depthWrite: false
+    depthWrite: false,
   };
 
-  if (type === 0) { // Sphere Core
-    return <Sphere args={[0.28, 32, 32]}><meshStandardMaterial {...materialProps} /></Sphere>;
-  } else if (type === 1) { // Box Core
-    // FIX: Use RoundedBox geometry. The radius is defined on the geometry, not the material.
+  if (type === 0) {
+    // Sphere Core
+    return (
+      <Sphere args={[0.28, 32, 32]}>
+        <meshStandardMaterial {...materialProps} />
+      </Sphere>
+    );
+  } else if (type === 1) {
+    // Box Core
     return (
       <RoundedBox args={[0.38, 0.38, 0.38]} radius={0.1} smoothness={4}>
         <meshStandardMaterial {...materialProps} />
       </RoundedBox>
     );
-  } else { // Ring/Torus Core
-    return <Torus args={[0.22, 0.06, 16, 64]}><meshStandardMaterial {...materialProps} /></Torus>;
+  } else {
+    // Ring/Torus Core
+    return (
+      <Torus args={[0.22, 0.06, 16, 64]}>
+        <meshStandardMaterial {...materialProps} />
+      </Torus>
+    );
   }
 }
