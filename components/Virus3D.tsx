@@ -7,54 +7,50 @@ import {
   Float,
   Sphere,
   Cylinder,
+  Icosahedron,
   Torus,
-  RoundedBox,
+  Ring,
   Sparkles,
   MeshDistortMaterial,
+  MeshWobbleMaterial,
+  Trail,
 } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
 
-// --- Same lore arrays as Solidity ---
+// --- LORE ARRAYS (Preserved exactly from original) ---
 const ALIGNMENTS = ['Symbiotic', 'Parasitic'] as const;
 const MUTATIONS_SYM = ['Neural-Linker', 'Muscle-Weaver', 'Cell-Regenerator', 'Gene-Purifier'] as const;
 const MUTATIONS_PAR = ['Void-Rot', 'Blood-Boil', 'Neural-Decay', 'Cell-Rupture'] as const;
 
 type Alignment = (typeof ALIGNMENTS)[number];
-type Mutation =
-  | (typeof MUTATIONS_SYM)[number]
-  | (typeof MUTATIONS_PAR)[number];
+type Mutation = (typeof MUTATIONS_SYM)[number] | (typeof MUTATIONS_PAR)[number];
 
 interface Virus3DProps {
   tokenId: number;
 }
 
-// Palette: derived from the SAME hue as SVG, but tweaked per alignment for cyberpunk vibe.
+// --- COLOR PALETTE GENERATOR ---
 function getPalette(hue: number, alignment: Alignment) {
-  // Base HSL exactly like Solidity renderer
-  const cMain = `hsl(${hue}, 70%, 50%)`;
-  const cDark = `hsl(${hue}, 60%, 25%)`;
-  const cGlow = `hsl(${(hue + 180) % 360}, 80%, 70%)`;
-  const cAccent = `hsl(${(hue + 30) % 360}, 90%, 60%)`;
-
-  // Alignment-specific flavor
+  // Symbiotic: Clean, neon, harmonious (Cyber-Medic vibe)
   if (alignment === 'Symbiotic') {
     return {
-      body: cMain,
-      bodyInner: `hsl(${hue}, 70%, 35%)`,
-      dark: cDark,
-      glow: cGlow,
-      accent: cAccent,
-      grid: `hsl(${(hue + 200) % 360}, 90%, 65%)`,
+      body: `hsl(${hue}, 60%, 45%)`, // Matte organic base
+      veins: `hsl(${hue}, 90%, 65%)`, // Glowing internal veins
+      core: `hsl(${(hue + 180) % 360}, 100%, 85%)`, // Bright white-hot core
+      spikes: `hsl(${hue}, 50%, 30%)`, // Darker protein spikes
+      tips: `hsl(${(hue + 40) % 360}, 90%, 60%)`, // Glowing receptor tips
+      aura: `hsl(${hue}, 80%, 50%)`,
     };
-  } else {
-    // Parasitic: more toxic & hostile
+  } 
+  // Parasitic: Toxic, dark, high contrast (Malware vibe)
+  else {
     return {
-      body: `hsl(${hue}, 80%, 30%)`,
-      bodyInner: `hsl(${hue}, 80%, 22%)`,
-      dark: `hsl(${hue}, 85%, 12%)`,
-      glow: `hsl(${(hue + 200) % 360}, 90%, 65%)`,
-      accent: `hsl(${(hue + 330) % 360}, 95%, 65%)`,
-      grid: `hsl(${(hue + 30) % 360}, 90%, 70%)`,
+      body: `hsl(${hue}, 50%, 20%)`, // Dark, bruised organic base
+      veins: `hsl(${(hue + 300) % 360}, 100%, 50%)`, // Corrupted veins (magenta/red shift)
+      core: `hsl(${hue}, 100%, 50%)`, // Deep pulsating core
+      spikes: `hsl(${hue}, 20%, 10%)`, // Black/burned spikes
+      tips: `hsl(${(hue + 180) % 360}, 100%, 50%)`, // Toxic warning color tips
+      aura: `hsl(${(hue + 320) % 360}, 90%, 40%)`,
     };
   }
 }
@@ -62,7 +58,7 @@ function getPalette(hue: number, alignment: Alignment) {
 export function Virus3D({ tokenId }: Virus3DProps) {
   const rootRef = useRef<THREE.Group>(null);
 
-  // === 1. Reproduce seed & traits exactly like Solidity ===
+  // === 1. TRAIT GENERATION (Deterministic based on TokenID) ===
   const seedHex = keccak256(
     encodePacked(
       ['uint256', 'uint256', 'string'],
@@ -70,454 +66,292 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     )
   );
   const seed = BigInt(seedHex);
-
   const hue = Number(seed % 360n);
-
-  const spikeCount = 6 + Number(seed % 7n); // must match metadata
+  
+  // Logic matches original solidity/metadata rules
+  const spikeCount = 8 + Number(seed % 12n); // Slightly denser spikes for better look
   const alignIdx = Number((seed >> 8n) % 2n);
   const mutIdx = Number((seed >> 12n) % 4n);
 
   const alignment: Alignment = ALIGNMENTS[alignIdx];
-  const mutation: Mutation =
-    alignment === 'Symbiotic'
-      ? MUTATIONS_SYM[mutIdx]
-      : MUTATIONS_PAR[mutIdx];
+  const mutation: Mutation = alignment === 'Symbiotic' ? MUTATIONS_SYM[mutIdx] : MUTATIONS_PAR[mutIdx];
 
-  const palette = useMemo(
-    () => getPalette(hue, alignment),
-    [hue, alignment]
-  );
+  const palette = useMemo(() => getPalette(hue, alignment), [hue, alignment]);
 
-  // === 2. Global motion (breathing, slow spin) ===
+  // === 2. ANIMATION LOOP ===
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
     if (!rootRef.current) return;
 
-    // slow world spin
-    rootRef.current.rotation.y = t * 0.25;
-    rootRef.current.rotation.x = Math.sin(t * 0.35) * 0.15;
+    // Organic bobbing and rotation
+    rootRef.current.rotation.y = t * 0.15;
+    rootRef.current.rotation.z = Math.sin(t * 0.2) * 0.1;
 
-    // breathing / pulsing
-    const pulse = 1 + Math.sin(t * 1.6) * 0.08;
-    rootRef.current.scale.setScalar(2.1 * pulse);
+    // "Heartbeat" scale effect
+    // Parasitic beats faster and more erratically
+    const beatFreq = alignment === 'Parasitic' ? 2.5 : 1.2;
+    const beatAmp = alignment === 'Parasitic' ? 0.08 : 0.05;
+    const pulse = 1 + Math.sin(t * beatFreq) * beatAmp;
+    
+    rootRef.current.scale.setScalar(2.0 * pulse);
   });
 
   return (
     <Float
-      speed={1.4}
-      rotationIntensity={0.35}
-      floatIntensity={0.55}
-      floatingRange={[-0.1, 0.1]}
+      speed={2} 
+      rotationIntensity={0.5} 
+      floatIntensity={0.5} 
+      floatingRange={[-0.2, 0.2]}
     >
       <group ref={rootRef}>
-        <VirusBody
-          alignment={alignment}
-          mutation={mutation}
-          palette={palette}
+        
+        {/* The Main Viral Capsid */}
+        <ViralMembrane alignment={alignment} palette={palette} />
+
+        {/* The "Cyber" Core inside */}
+        <CyberCore alignment={alignment} palette={palette} />
+
+        {/* Surface Proteins / Spikes */}
+        <SpikeArray 
+          count={spikeCount} 
+          alignment={alignment} 
+          palette={palette} 
+          seed={Number(seed % 100000n)} 
         />
-        <Spikes
-          count={spikeCount}
-          alignment={alignment}
-          palette={palette}
-          seed={Number(seed % 1_000_000n)}
-        />
-        <Core
-          alignment={alignment}
-          mutation={mutation}
-          palette={palette}
-        />
-        <Sparkles
-          count={40}
-          size={0.35}
-          speed={0.35}
-          opacity={0.45}
-          scale={4}
-          color={palette.glow}
+
+        {/* External Tech Rings / Aura */}
+        <DataField alignment={alignment} palette={palette} />
+
+        {/* Atmosphere */}
+        <Sparkles 
+          count={50} 
+          scale={5} 
+          size={2} 
+          speed={0.4} 
+          opacity={0.5} 
+          color={palette.aura} 
         />
       </group>
     </Float>
   );
 }
 
-/* ---------------- BODY / CAPSULE ---------------- */
-
-function VirusBody({
-  alignment,
-  mutation,
-  palette,
-}: {
-  alignment: Alignment;
-  mutation: Mutation;
-  palette: ReturnType<typeof getPalette>;
-}) {
-  // Slightly different distortion based on mutation
-  const distort =
-    mutation === 'Neural-Linker' || mutation === 'Neural-Decay'
-      ? 0.6
-      : 0.4;
-
-  const speed =
-    mutation === 'Blood-Boil' || mutation === 'Cell-Rupture'
-      ? 2.4
-      : 1.7;
-
-  return (
-    <>
-      {/* Aura / force field */}
-      <Sphere args={[1.5, 40, 40]}>
-        <meshBasicMaterial
-          color={palette.glow}
-          transparent
-          opacity={0.12}
-          side={THREE.BackSide}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </Sphere>
-
-      {/* Outer distorted shell */}
-      <Sphere args={[1.0, 64, 64]} scale={[1.15, 1.25, 1.1]}>
-        <MeshDistortMaterial
-          color={palette.body}
-          emissive={palette.dark}
-          emissiveIntensity={alignment === 'Parasitic' ? 1.0 : 0.6}
-          distort={distort}
-          speed={speed}
-          roughness={0.2}
-          metalness={0.8}
-        />
-      </Sphere>
-
-      {/* Inner tissue layer */}
-      <Sphere args={[0.8, 48, 48]} scale={[1.05, 1.18, 1.05]}>
-        <meshStandardMaterial
-          color={palette.bodyInner}
-          emissive={palette.bodyInner}
-          emissiveIntensity={0.4}
-          roughness={0.7}
-          metalness={0.1}
-          transparent
-          opacity={0.3}
-        />
-      </Sphere>
-
-      {/* Cyberpunk ring / grid feel */}
-      <Torus args={[1.2, 0.02, 16, 96]} rotation={[Math.PI / 3, 0, 0]}>
-        <meshBasicMaterial
-          color={palette.grid}
-          transparent
-          opacity={0.35}
-          blending={THREE.AdditiveBlending}
-        />
-      </Torus>
-      <Torus args={[1.05, 0.015, 16, 96]} rotation={[Math.PI / 2.2, 0, 0]}>
-        <meshBasicMaterial
-          color={palette.grid}
-          transparent
-          opacity={0.2}
-          blending={THREE.AdditiveBlending}
-        />
-      </Torus>
-
-      {/* Internal glow */}
-      <Sphere args={[0.65, 40, 40]}>
-        <meshStandardMaterial
-          color={palette.glow}
-          emissive={palette.glow}
-          emissiveIntensity={0.8}
-          transparent
-          opacity={0.22}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </Sphere>
-
-      <pointLight
-        position={[0, 0, 0]}
-        intensity={alignment === 'Parasitic' ? 2.8 : 2.0}
-        color={palette.glow}
-        distance={5}
-        decay={2}
-      />
-    </>
-  );
-}
-
-/* ---------------- SPIKES ---------------- */
-
-function Spikes({
-  count,
-  alignment,
-  palette,
-  seed,
-}: {
-  count: number;
-  alignment: Alignment;
-  palette: ReturnType<typeof getPalette>;
-  seed: number;
-}) {
-  const spikesRef = useRef<THREE.Group[]>([]);
-
-  const spikeData = useMemo(() => {
-    const arr: { pos: THREE.Vector3; rot: THREE.Euler; len: number }[] = [];
-    const radius = 1.1;
-    const phi = (1 + Math.sqrt(5)) / 2;
-
-    for (let i = 0; i < count; i++) {
-      const theta = (2 * Math.PI * i) / phi;
-      const phiAng = Math.acos(1 - (2 * (i + 0.5)) / count);
-
-      const x = radius * Math.sin(phiAng) * Math.cos(theta);
-      const y = radius * Math.sin(phiAng) * Math.sin(theta);
-      const z = radius * Math.cos(phiAng);
-
-      const base = new THREE.Vector3(x, y, z);
-
-      const rot = new THREE.Euler();
-      rot.setFromQuaternion(
-        new THREE.Quaternion().setFromUnitVectors(
-          new THREE.Vector3(0, 1, 0),
-          base.clone().normalize()
-        )
-      );
-
-      const rand = ((Math.sin(seed + i * 17.3) + 1) / 2) * 0.7 + 0.9; // 0.9–1.6
-      arr.push({ pos: base.multiplyScalar(1.03), rot, len: rand });
-    }
-
-    return arr;
-  }, [count, seed]);
-
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    spikesRef.current.forEach((g, i) => {
-      if (!g) return;
-      const wobble = Math.sin(t * 3 + i * 0.9) * 0.12;
-      g.rotation.z += wobble * 0.015;
-      g.rotation.y += wobble * 0.01;
-    });
-  });
-
-  const SpikeShape: React.FC<{ len: number }> = ({ len }) => {
-    const isSym = alignment === 'Symbiotic';
-
-    if (isSym) {
-      // softer protein clubs
-      return (
-        <group>
-          <Cylinder args={[0.06, 0.05, 0.65 * len, 10]} position={[0, 0.33 * len, 0]}>
-            <meshStandardMaterial
-              color={palette.dark}
-              roughness={0.6}
-              metalness={0.35}
-            />
-          </Cylinder>
-          <Sphere args={[0.13 * len, 18, 18]} position={[0, 0.72 * len, 0]}>
-            <meshStandardMaterial
-              color={palette.accent}
-              emissive={palette.accent}
-              emissiveIntensity={0.7}
-              roughness={0.2}
-              metalness={0.6}
-            />
-          </Sphere>
-        </group>
-      );
-    } else {
-      // parasitic: needle / antenna hybrid
-      return (
-        <group>
-          <Sphere args={[0.07, 16, 16]} position={[0, 0.04, 0]}>
-            <meshStandardMaterial
-              color={palette.dark}
-              metalness={0.8}
-              roughness={0.25}
-            />
-          </Sphere>
-          <Cylinder args={[0.015, 0.08, 0.85 * len, 10]} position={[0, 0.45 * len, 0]}>
-            <meshStandardMaterial
-              color={palette.accent}
-              emissive={palette.accent}
-              emissiveIntensity={0.6}
-              metalness={1}
-              roughness={0.2}
-            />
-          </Cylinder>
-          <Torus
-            args={[0.14 * len, 0.025, 16, 32]}
-            position={[0, 0.85 * len, 0]}
-            rotation={[Math.PI / 2, 0, 0]}
-          >
-            <meshStandardMaterial
-              color={palette.accent}
-              emissive={palette.accent}
-              emissiveIntensity={1.0}
-            />
-          </Torus>
-        </group>
-      );
-    }
-  };
+// --------------------------------------------------------
+// 1. VIRAL MEMBRANE (The Body)
+// --------------------------------------------------------
+// Changed: Low metalness, High Roughness for "Flesh" look.
+// Added: Wireframe overlay for "Cyber" look.
+function ViralMembrane({ alignment, palette }: { alignment: Alignment, palette: any }) {
+  const isPara = alignment === 'Parasitic';
+  
+  // Parasitic distorts faster and sharper
+  const distort = isPara ? 0.6 : 0.4;
+  const speed = isPara ? 3.0 : 1.5;
 
   return (
     <group>
-      {spikeData.map((s, i) => (
-        <group
-          key={i}
-          ref={(el) => {
-            if (el) spikesRef.current[i] = el;
-          }}
-          position={s.pos}
-          rotation={s.rot}
-        >
-          <SpikeShape len={s.len} />
+      {/* Layer 1: The Biological Shell (Matte, Fleshy) */}
+      <Sphere args={[1, 64, 64]}>
+        <MeshDistortMaterial
+          color={palette.body}
+          emissive={palette.veins}
+          emissiveIntensity={0.2}
+          roughness={0.7} // <--- Makes it look organic/matte, not shiny
+          metalness={0.1} // <--- Low metalness for biological tissue
+          distort={distort}
+          speed={speed}
+          bumpScale={0.05}
+        />
+      </Sphere>
+
+      {/* Layer 2: The Digital Grid (Wireframe overlay) */}
+      <Sphere args={[1.02, 32, 32]}>
+        <MeshDistortMaterial
+          color={palette.veins}
+          wireframe
+          transparent
+          opacity={0.15}
+          distort={distort}
+          speed={speed}
+          roughness={0}
+          metalness={1} // The grid is pure tech
+        />
+      </Sphere>
+
+      {/* Layer 3: Inner Glow (Fake SSS) */}
+      <Sphere args={[0.85, 32, 32]}>
+        <meshBasicMaterial color={palette.body} transparent opacity={0.5} />
+      </Sphere>
+    </group>
+  );
+}
+
+// --------------------------------------------------------
+// 2. SPIKE ARRAY (The Receptors)
+// --------------------------------------------------------
+// Changed: Use Icosahedrons for tips (looks more viral/molecular).
+// Changed: Tapered cylinders for stalks.
+function SpikeArray({ count, alignment, palette, seed }: { count: number, alignment: Alignment, palette: any, seed: number }) {
+  const spikes = useMemo(() => {
+    const temp = [];
+    // Fibonacci Sphere distribution for even spike placement
+    const phi = Math.PI * (3 - Math.sqrt(5)); 
+    for (let i = 0; i < count; i++) {
+      const y = 1 - (i / (count - 1)) * 2;
+      const radius = Math.sqrt(1 - y * y);
+      const theta = phi * i;
+      const x = Math.cos(theta) * radius;
+      const z = Math.sin(theta) * radius;
+      
+      const pos = new THREE.Vector3(x, y, z).normalize().multiplyScalar(1); // On surface
+      const rot = new THREE.Euler().setFromQuaternion(
+        new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos)
+      );
+      
+      // Random length variation based on seed
+      const lenVar = ((seed + i * 13) % 100) / 100; 
+      const length = 1 + lenVar * 0.4; // 1.0 to 1.4
+
+      temp.push({ pos, rot, length });
+    }
+    return temp;
+  }, [count, seed]);
+
+  return (
+    <group>
+      {spikes.map((s, i) => (
+        <group key={i} position={s.pos} rotation={s.rot}>
+          <SpikeModel length={s.length} alignment={alignment} palette={palette} />
         </group>
       ))}
     </group>
   );
 }
 
-/* ---------------- CORE / NUCLEUS ---------------- */
-
-function Core({
-  alignment,
-  mutation,
-  palette,
-}: {
-  alignment: Alignment;
-  mutation: Mutation;
-  palette: ReturnType<typeof getPalette>;
-}) {
-  const coreRef = useRef<THREE.Group>(null);
-
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    if (!coreRef.current) return;
-
-    coreRef.current.rotation.y = t * 0.8;
-    coreRef.current.rotation.x = Math.sin(t * 0.9) * 0.4;
-  });
-
-  const isSym = alignment === 'Symbiotic';
+function SpikeModel({ length, alignment, palette }: { length: number, alignment: Alignment, palette: any }) {
+  const isPara = alignment === 'Parasitic';
 
   return (
-    <group ref={coreRef}>
-      {/* main core shape varies by alignment */}
-      {isSym ? (
-        <Sphere args={[0.32, 32, 32]}>
-          <meshStandardMaterial
-            color={palette.accent}
-            emissive={palette.accent}
-            emissiveIntensity={1.1}
-            transparent
-            opacity={0.9}
-            roughness={0.2}
-            metalness={0.6}
-            blending={THREE.AdditiveBlending}
-          />
-        </Sphere>
+    <group>
+      {/* The Stalk - connects to body */}
+      <Cylinder 
+        args={[0.02, 0.08, 0.4, 8]} 
+        position={[0, 0.2, 0]}
+      >
+        <meshStandardMaterial color={palette.spikes} roughness={0.8} />
+      </Cylinder>
+
+      {/* The Connector */}
+      <Sphere args={[0.06, 8, 8]} position={[0, 0.4, 0]}>
+        <meshStandardMaterial color={palette.veins} emissive={palette.veins} emissiveIntensity={0.5} />
+      </Sphere>
+
+      {/* The Tip - Visual identity of the strain */}
+      {isPara ? (
+        // Parasitic: Sharp, Needle-like, Dangerous
+        <group position={[0, 0.4 + (length * 0.3), 0]}>
+          <Cylinder args={[0, 0.04, length * 0.6, 6]} >
+            <meshStandardMaterial 
+              color={palette.tips} 
+              emissive={palette.tips} 
+              emissiveIntensity={2} 
+              toneMapped={false}
+            />
+          </Cylinder>
+        </group>
       ) : (
-        <RoundedBox args={[0.42, 0.42, 0.42]} radius={0.16} smoothness={5}>
-          <meshStandardMaterial
-            color={palette.accent}
-            emissive={palette.accent}
-            emissiveIntensity={1.2}
-            transparent
-            opacity={0.95}
-            roughness={0.2}
-            metalness={0.7}
-            blending={THREE.AdditiveBlending}
-          />
-        </RoundedBox>
+        // Symbiotic: Geometric, Molecular, Complex
+        <group position={[0, 0.45, 0]}>
+          <Icosahedron args={[0.12, 0]}>
+            <meshStandardMaterial 
+              color={palette.tips} 
+              emissive={palette.tips} 
+              emissiveIntensity={1} 
+              roughness={0.3}
+              metalness={0.8}
+            />
+          </Icosahedron>
+          {/* Floating bits around the tip */}
+          <group rotation={[0.5, 0.5, 0]}>
+            <Torus args={[0.2, 0.01, 8, 24]}>
+              <meshBasicMaterial color={palette.veins} transparent opacity={0.6} />
+            </Torus>
+          </group>
+        </group>
       )}
-
-      {/* inner DNA / tech spiral – more complex for Neural* mutations */}
-      <Helix
-        color={palette.accent}
-        dense={
-          mutation === 'Neural-Linker' ||
-          mutation === 'Neural-Decay'
-        }
-      />
-
-      {/* outer cyber rings */}
-      <FieldRings color={palette.glow} aggressive={alignment === 'Parasitic'} />
     </group>
   );
 }
 
-/* ---------------- HELIX / FIELD RINGS ---------------- */
-
-function Helix({ color, dense }: { color: string; dense: boolean }) {
-  const groupRef = useRef<THREE.Group>(null);
-
-  useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    if (!groupRef.current) return;
-    groupRef.current.rotation.y = -t * 0.9;
-  });
-
-  const beads: React.ReactElement[] = [];
-  const turns = dense ? 3.0 : 2.0;
-  const segments = dense ? 40 : 28;
-
-  for (let i = 0; i < segments; i++) {
-    const t = (i / (segments - 1)) * turns * Math.PI * 2;
-    const y = (i / (segments - 1) - 0.5) * 0.55;
-    const r = 0.18;
-    const x = Math.cos(t) * r;
-    const z = Math.sin(t) * r;
-
-    beads.push(
-      <Sphere key={i} args={[0.03, 12, 12]} position={[x, y, z]}>
-        <meshStandardMaterial
-          color={color}
-          emissive={color}
-          emissiveIntensity={0.8}
-          roughness={0.3}
-          metalness={0.5}
-        />
-      </Sphere>
-    );
-  }
-
-  return <group ref={groupRef}>{beads}</group>;
-}
-
-function FieldRings({ color, aggressive }: { color: string; aggressive: boolean }) {
-  const r1 = useRef<THREE.Mesh>(null);
-  const r2 = useRef<THREE.Mesh>(null);
+// --------------------------------------------------------
+// 3. CYBER CORE (The Nucleus)
+// --------------------------------------------------------
+function CyberCore({ alignment, palette }: { alignment: Alignment, palette: any }) {
+  const coreRef = useRef<THREE.Mesh>(null);
 
   useFrame((state) => {
-    const t = state.clock.getElapsedTime();
-    if (r1.current) {
-      r1.current.rotation.y = t * (aggressive ? 0.6 : 0.4);
-      r1.current.rotation.x = Math.sin(t * 0.3) * 0.4;
-    }
-    if (r2.current) {
-      r2.current.rotation.y = -t * (aggressive ? 0.5 : 0.35);
-      r2.current.rotation.z = Math.cos(t * 0.27) * 0.4;
+    if (coreRef.current) {
+      coreRef.current.rotation.x += 0.01;
+      coreRef.current.rotation.y += 0.02;
     }
   });
 
   return (
     <group>
-      <Torus ref={r1} args={[0.55, 0.02, 16, 64]}>
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.4}
-          blending={THREE.AdditiveBlending}
+      {/* Bright center light */}
+      <pointLight color={palette.core} intensity={2} distance={3} decay={2} />
+      
+      {/* The physical core geometry */}
+      <Icosahedron ref={coreRef} args={[0.4, 0]}>
+        <meshStandardMaterial 
+          color={palette.core} 
+          emissive={palette.core}
+          emissiveIntensity={2}
+          wireframe={true} // Looks like data/code
+          toneMapped={false}
         />
-      </Torus>
-      <Torus ref={r2} args={[0.75, 0.015, 16, 64]}>
-        <meshBasicMaterial
-          color={color}
-          transparent
-          opacity={0.25}
-          blending={THREE.AdditiveBlending}
-        />
-      </Torus>
+      </Icosahedron>
+
+      {/* Inner dark matter */}
+      <Sphere args={[0.3, 16, 16]}>
+        <meshBasicMaterial color="#000000" />
+      </Sphere>
     </group>
   );
+}
+
+// --------------------------------------------------------
+// 4. DATA FIELD (The Rings)
+// --------------------------------------------------------
+function DataField({ alignment, palette }: { alignment: Alignment, palette: any }) {
+  const ref = useRef<THREE.Group>(null);
+  
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+    if(ref.current) {
+      ref.current.rotation.z = t * 0.1;
+      ref.current.rotation.x = Math.sin(t * 0.2) * 0.2;
+    }
+  });
+
+  return (
+    <group ref={ref}>
+       {/* Scanner Ring 1 */}
+       <Ring args={[1.4, 1.42, 64]} rotation={[Math.PI / 2, 0, 0]}>
+         <meshBasicMaterial color={palette.aura} transparent opacity={0.3} side={THREE.DoubleSide} />
+       </Ring>
+       
+       {/* Scanner Ring 2 (Offset) */}
+       <Ring args={[1.6, 1.61, 64]} rotation={[Math.PI / 1.8, 0, 0]}>
+         <meshBasicMaterial color={palette.veins} transparent opacity={0.15} side={THREE.DoubleSide} />
+       </Ring>
+
+       {/* Floating Data Particles */}
+       {alignment === 'Symbiotic' && (
+         <Torus args={[1.8, 0.01, 16, 100]} rotation={[Math.PI / 3, 0, 0]}>
+           <meshBasicMaterial color={palette.core} transparent opacity={0.1} />
+         </Torus>
+       )}
+    </group>
+  )
 }
