@@ -194,8 +194,17 @@ export default function View3DPage() {
             </div>
 
             {selectedTokenId !== null && (
-                // PERFORMANCE OPTIMIZATION: dpr={[1, 1.5]} limits pixel ratio to prevent crashes on high-res mobile screens
-                <Canvas dpr={[1, 1.5]} gl={{ preserveDrawingBuffer: true, powerPreference: 'default' }}>
+                // PERFORMANCE FIX: dpr={1} forces low resolution to prevent 'Context Lost' crash on mobile
+                // gl config disables expensive anti-aliasing
+                <Canvas 
+                    dpr={1} 
+                    gl={{ 
+                        antialias: false, 
+                        powerPreference: 'default', 
+                        preserveDrawingBuffer: true,
+                        failIfMajorPerformanceCaveat: false
+                    }}
+                >
                     <PerspectiveCamera makeDefault position={[0, 0, 6]} fov={45} />
                     <color attach="background" args={['#020205']} />
                     <fog attach="fog" args={['#020205', 5, 20]} />
@@ -205,7 +214,7 @@ export default function View3DPage() {
                     <pointLight position={[-5, -5, -5]} intensity={1} color="#0040ff" distance={15} />
                     <pointLight position={[5, -5, 5]} intensity={0.5} color="#00ff80" distance={15} />
                     
-                    <Stars radius={80} depth={20} count={3000} factor={4} saturation={0.5} fade speed={0.5} />
+                    <Stars radius={80} depth={20} count={2000} factor={4} saturation={0.5} fade speed={0.5} />
                     <Environment preset="city" /> 
 
                     <Suspense fallback={null}>
@@ -221,8 +230,8 @@ export default function View3DPage() {
                         autoRotate
                         autoRotateSpeed={0.8}
                     />
-                    {/* Lowered resolution and blur for better performance */}
-                    <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={2.5} far={5} color="#0020ff" resolution={256} frames={1} />
+                    {/* Lowered resolution significantly for stability */}
+                    <ContactShadows position={[0, -2.5, 0]} opacity={0.6} scale={15} blur={2.5} far={5} color="#0020ff" resolution={128} frames={1} />
                 </Canvas>
             )}
         </div>
