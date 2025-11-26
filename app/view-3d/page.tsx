@@ -2,14 +2,13 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
-import { createPublicClient, createWalletClient, custom, http, parseAbiItem, Address } from 'viem';
+import { createPublicClient, createWalletClient, custom, http, parseAbiItem, fallback, getAddress } from 'viem';
 import { base } from 'viem/chains';
 import Link from 'next/link';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Environment, ContactShadows, Stars, PerspectiveCamera } from '@react-three/drei';
 import { Virus3D } from '@/components/Virus3D';
 
-// Use the specific contract address you provided, with a fallback to env var
 const CONTRACT_ADDRESS = (process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x60fcA7d0b0585937C451bd043f5259Bf72F08358") as `0x${string}`;
 
 // ABI to check balance and ownership
@@ -33,11 +32,13 @@ export default function View3DPage() {
   const [selectedTokenId, setSelectedTokenId] = useState<number | null>(null);
   const [userAddress, setUserAddress] = useState<string>("");
   const [scanStatus, setScanStatus] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string>("");
 
   const connectAndFetch = async () => {
     try {
       setLoadingState('connecting');
       setScanStatus("Initializing Wallet...");
+      setErrorMessage("");
       
       // 1. Connect Wallet
       const provider = await sdk.wallet.getEthereumProvider();
@@ -45,9 +46,19 @@ export default function View3DPage() {
 
       const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) });
       const [address] = await walletClient.requestAddresses();
-      setUserAddress(address);
+      // Ensure address is checksummed for safety
+      const checksumAddress = getAddress(address);
+      setUserAddress(checksumAddress);
 
-      const publicClient = createPublicClient({ chain: base, transport: http() });
+      // Use a fallback transport to try multiple RPCs if one fails/limits us
+      const publicClient = createPublicClient({ 
+        chain: base, 
+        transport: fallback([
+            http(), // Default 
+            http('https://mainnet.base.org'), 
+            http('https://base.publicnode.com')
+        ])
+      });
 
       // 2. QUICK CHECK: Does this wallet hold ANY of our NFTs?
       setLoadingState('checking-balance');
@@ -57,7 +68,7 @@ export default function View3DPage() {
         address: CONTRACT_ADDRESS,
         abi: ABI,
         functionName: 'balanceOf',
-        args: [address]
+        args: [checksumAddress]
       });
 
       if (balance === BigInt(0)) {
@@ -65,29 +76,29 @@ export default function View3DPage() {
         return;
       }
 
-      // 3. IDENTIFY: We know they have tokens, but we need the specific IDs to render them.
-      // Since the contract is gas-optimized, we scan Transfer logs to find the IDs.
+      // 3. IDENTIFY: Scan Transfer logs to find IDs.
       setLoadingState('scanning-ids');
       setScanStatus(`Found ${balance.toString()} strains. Decoding genomes...`);
 
+      // NOTE: Scanning from 'earliest' on Base Mainnet can timeout on free RPCs.
+      // Ideally, we would know the deployment block. 
+      // If this fails, it's likely an RPC timeout.
       const transferLogs = await publicClient.getLogs({
         address: CONTRACT_ADDRESS,
         event: parseAbiItem('event Transfer(address indexed from, address indexed to, uint256 indexed id)'),
-        args: { to: address },
-        fromBlock: 'earliest'
+        args: { to: checksumAddress },
+        fromBlock: 'earliest' 
       });
 
       // Get unique IDs that were ever transferred to this user
       const candidateIds = Array.from(new Set(transferLogs.map(log => Number(log.args.id))));
 
       if (candidateIds.length === 0) {
-        // Edge case: balance > 0 but no logs found (rare, usually RPC issue)
         setLoadingState('no-assets');
         return;
       }
 
       // 4. VERIFY: Check which of these candidates are STILL owned by the user
-      // (They might have sold some, so we can't just trust the logs blindly)
       const ownershipChecks = candidateIds.map(id => ({
         address: CONTRACT_ADDRESS,
         abi: ABI,
@@ -100,12 +111,17 @@ export default function View3DPage() {
 
       const verifiedIds: number[] = [];
       ownersResults.forEach((result, index) => {
-        if (result.status === 'success' && (result.result as string).toLowerCase() === address.toLowerCase()) {
+        if (result.status === 'success' && (result.result as string).toLowerCase() === checksumAddress.toLowerCase()) {
             verifiedIds.push(candidateIds[index]);
         }
       });
 
-      // 5. FETCH IMAGES: Get the tokenURI for the verified IDs
+      if (verifiedIds.length === 0) {
+        setLoadingState('no-assets');
+        return;
+      }
+
+      // 5. FETCH IMAGES
       const uriChecks = verifiedIds.map(id => ({
         address: CONTRACT_ADDRESS,
         abi: ABI,
@@ -124,7 +140,6 @@ export default function View3DPage() {
           }
       });
 
-      // Sort: Newest IDs first
       finalTokenList.sort((a, b) => b.id - a.id);
       
       if (finalTokenList.length > 0) {
@@ -135,8 +150,10 @@ export default function View3DPage() {
           setLoadingState('no-assets');
       }
 
-    } catch (e) {
+    } catch (e: any) {
       console.error("Error in view-3d", e);
+      // Capture the specific error message to help debug
+      setErrorMessage(e.message || "Unknown error occurred");
       setLoadingState('error');
     }
   };
@@ -168,12 +185,12 @@ export default function View3DPage() {
   if (loadingState === 'error') {
     return (
         <MainLayout>
-             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 bg-red-900/20 rounded-2xl border border-red-500/30">
+             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-6 bg-red-900/20 rounded-2xl border border-red-500/30 max-w-md">
                 <div className="text-4xl">⚠️</div>
                 <h2 className="text-xl font-bold text-red-400">Connection Failed</h2>
-                <p className="text-gray-400 text-sm mb-4">Could not verify assets on Base network.</p>
+                <p className="text-gray-400 text-xs mb-4 font-mono break-words">{errorMessage || "Could not verify assets on Base network."}</p>
                 <button onClick={connectAndFetch} className="py-3 px-8 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl text-sm transition-all shadow-[0_0_20px_rgba(220,38,38,0.4)]">
-                    RETRY
+                    RETRY SEQUENCE
                 </button>
             </div>
         </MainLayout>
