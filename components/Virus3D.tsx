@@ -24,7 +24,6 @@ function getPalette(hue: number, alignment: Alignment) {
     primaryGlow: `hsl(${primaryHue}, 100%, 75%)`,
     
     // Secondary: Body Shell (Purple)
-    // High lightness to pop against black background
     secondary: `hsl(${secondaryHue}, 90%, 65%)`, 
     
     opacity: alignment === 'Parasitic' ? 1.0 : 0.9,
@@ -66,8 +65,8 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   return (
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
-        <CoreGlow palette={palette} />
-        <ParticleBody palette={palette} />
+        <ParticleCore palette={palette} />
+        <ParticleShell palette={palette} />
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
       </group>
@@ -77,16 +76,16 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 // --- SUB-COMPONENTS ---
 
-function CoreGlow({ palette }: { palette: any }) {
-  // 1. The Glow Sphere (Soft light)
-  // 2. Inner Particles (To match texture of body)
-  
+function ParticleCore({ palette }: { palette: any }) {
+  // REPLACED SOLID SPHERE WITH PARTICLES
+  // Densely packed particles in the center (Radius 0 -> 0.3)
   const particles = useMemo(() => {
-    const count = 500;
+    const count = 1200; // High density for small area
     const pos = new Float32Array(count * 3);
+    
     for(let i=0; i<count; i++) {
-        // Random point inside sphere radius 0.28
-        const r = Math.pow(Math.random(), 0.5) * 0.28;
+        // Power 0.5 distributes them evenly in the volume (not all at center)
+        const r = Math.pow(Math.random(), 0.5) * 0.3; 
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         
@@ -98,21 +97,7 @@ function CoreGlow({ palette }: { palette: any }) {
   }, []);
 
   return (
-    <group>
-      {/* Soft Light Sphere */}
-      <mesh>
-        <sphereGeometry args={[0.3, 32, 32]} />
-        <meshBasicMaterial 
-          color={palette.primary} 
-          transparent 
-          opacity={0.6} 
-          blending={THREE.AdditiveBlending} 
-          toneMapped={false} 
-        />
-      </mesh>
-
-      {/* Texture Particles inside the core */}
-      <points>
+    <points>
         <bufferGeometry>
             <bufferAttribute 
                 attach="attributes-position" 
@@ -123,21 +108,21 @@ function CoreGlow({ palette }: { palette: any }) {
             />
         </bufferGeometry>
         <pointsMaterial 
-            color={palette.primaryGlow} 
-            size={0.025} 
+            color={palette.primaryGlow} // Green Glow
+            size={0.035} 
             transparent 
-            opacity={0.9} 
+            opacity={0.8} 
             blending={THREE.AdditiveBlending}
             toneMapped={false}
         />
-      </points>
-    </group>
+    </points>
   );
 }
 
-function ParticleBody({ palette }: { palette: any }) {
+function ParticleShell({ palette }: { palette: any }) {
+  // The outer Purple Shell (Radius 0.3 -> 1.0)
   const particles = useMemo(() => {
-    const count = 10000; 
+    const count = 8000; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
     const colorSecondary = new THREE.Color(palette.secondary); 
@@ -146,11 +131,9 @@ function ParticleBody({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // FIX: Adjusted Radius Distribution
-      // Start at 0.25 (inside the core) to eliminate the gap
-      // End at 1.0 (outer shell)
-      // Math.pow gives a bias towards the outside to keep the "shell" look
-      const r = 0.25 + Math.pow(Math.random(), 1.5) * 0.75; 
+      // LOGIC: Start exactly where the core ends (0.3)
+      // Push most particles towards the surface (1.0) for a "Shell" look
+      const r = 0.3 + Math.pow(Math.random(), 1.5) * 0.7; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -169,9 +152,9 @@ function ParticleBody({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* Inner black blocker (Smaller now, to allow overlap) */}
+      {/* Tiny black blocker just to prevent weird see-through artifacts at exact center */}
       <mesh>
-        <sphereGeometry args={[0.24, 32, 32]} />
+        <sphereGeometry args={[0.2, 32, 32]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
       
