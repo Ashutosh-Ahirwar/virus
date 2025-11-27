@@ -188,7 +188,8 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         x = r * Math.sin(phi) * Math.cos(theta);
-        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5; // Offset up
+        // CHANGED: Lowered the head position slightly to match new stalk height
+        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.45; 
         z = r * Math.cos(phi);
       } else {
         // Stalk: Cylinder
@@ -206,8 +207,9 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
     return pos;
   }, []);
 
+  // CHANGED: Removed "position={[0, 0.9, 0]}" so it sits ON the surface
   return (
-    <group position={[0, 0.9, 0]}>
+    <group> 
       <points>
         <bufferGeometry>
            <bufferAttribute 
