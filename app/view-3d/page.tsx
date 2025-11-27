@@ -119,7 +119,6 @@ export default function View3DPage() {
     connectAndFetch();
   }, []);
 
-  // ... Loading States (Same as before) ...
   if (loadingState !== 'ready' && loadingState !== 'no-assets' && loadingState !== 'error') {
     return (
         <MainLayout>
@@ -191,20 +190,16 @@ export default function View3DPage() {
                         preserveDrawingBuffer: true,
                     }}
                 >
-                    {/* CHANGED: Z position increased to 16 for wider view */}
-                    <PerspectiveCamera makeDefault position={[0, 0, 16]} fov={50} />
+                    {/* CHANGED: Position z=12 (closer) */}
+                    <PerspectiveCamera makeDefault position={[0, 0, 12]} fov={50} />
                     
-                    {/* Dark Blue-Black Background */}
                     <color attach="background" args={['#000510']} />
-                    
                     <fog attach="fog" args={['#000510', 10, 30]} />
                     
-                    {/* Neutral lighting to allow Seed Color to pop */}
                     <ambientLight intensity={0.4} />
                     <spotLight position={[10, 10, 10]} angle={0.5} penumbra={1} intensity={1} color="#ffffff" />
                     <pointLight position={[-10, -5, -5]} intensity={0.5} color="#ffffff" />
                     
-                    {/* Background DNA */}
                     <DnaBackground />
 
                     <Suspense fallback={null}>
@@ -215,9 +210,9 @@ export default function View3DPage() {
                         enablePan={false} 
                         minPolarAngle={Math.PI / 4} 
                         maxPolarAngle={Math.PI / 1.5}
-                        // CHANGED: Increased distances to prevent zoom-in issues
-                        minDistance={8}
-                        maxDistance={25}
+                        // CHANGED: Allow getting closer (6) and prevent getting lost (20)
+                        minDistance={6}
+                        maxDistance={20}
                         autoRotate
                         autoRotateSpeed={0.5}
                     />
@@ -243,7 +238,6 @@ export default function View3DPage() {
 function MainLayout({ children }: { children: React.ReactNode }) {
     return (
       <main className="relative flex min-h-screen flex-col items-center bg-black text-white font-mono p-4">
-        {/* Scan lines overlay */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-20 pointer-events-none bg-[length:100%_4px,3px_100%]"></div>
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_var(--tw-gradient-stops))] from-blue-900/20 via-black to-black z-0 pointer-events-none"></div>
   
