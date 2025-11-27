@@ -14,14 +14,10 @@ interface Virus3DProps {
   tokenId: number;
 }
 
-// === 1. STRONG DISPLACEMENT LOGIC ===
+// === 1. DISPLACEMENT LOGIC (Kept the rugged look) ===
 function getRuggedDisplacement(theta: number, phi: number) {
-  // Lower frequency = Bigger, more noticeable lumps
-  // Higher amplitude = Deeper valleys
-  const lobe = Math.sin(theta * 5) * Math.cos(phi * 5); // 5 distinct lobes
-  const micro = Math.cos(theta * 20 + phi * 10); // surface roughness
-  
-  // Amplitude increased to 0.15 (was 0.08) for visible shape change
+  const lobe = Math.sin(theta * 5) * Math.cos(phi * 5); 
+  const micro = Math.cos(theta * 20 + phi * 10); 
   return (lobe * 0.15) + (micro * 0.03); 
 }
 
@@ -82,12 +78,12 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 function ParticleCore({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 3500; 
+    const count = 3000; 
     const pos = new Float32Array(count * 3);
     
     for(let i=0; i<count; i++) {
-        // Solid Center (Radius 0 -> 0.35)
-        const r = Math.pow(Math.random(), 2.5) * 0.35; 
+        // Uniform sphere distribution for a solid look
+        const r = Math.pow(Math.random(), 0.33) * 0.28; // Radius up to 0.28
         
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -100,26 +96,40 @@ function ParticleCore({ palette }: { palette: any }) {
   }, []);
 
   return (
-    <points>
-        <bufferGeometry>
-            <bufferAttribute 
-                attach="attributes-position" 
-                count={particles.length/3} 
-                array={particles} 
-                itemSize={3}
-                args={[particles, 3]} 
+    <group>
+        {/* SOLID GLOWING SPHERE (Fixes the black hole) */}
+        <mesh>
+            <sphereGeometry args={[0.18, 32, 32]} />
+            <meshBasicMaterial 
+                color={palette.primary} 
+                toneMapped={false}
+                transparent
+                opacity={1.0}
             />
-        </bufferGeometry>
-        <pointsMaterial 
-            color={palette.primary} 
-            size={0.035} 
-            transparent 
-            opacity={0.8} 
-            blending={THREE.AdditiveBlending}
-            toneMapped={false}
-            depthWrite={false}
-        />
-    </points>
+        </mesh>
+
+        {/* Cloud of particles surrounding it */}
+        <points>
+            <bufferGeometry>
+                <bufferAttribute 
+                    attach="attributes-position" 
+                    count={particles.length/3} 
+                    array={particles} 
+                    itemSize={3}
+                    args={[particles, 3]} 
+                />
+            </bufferGeometry>
+            <pointsMaterial 
+                color={palette.primaryGlow} 
+                size={0.035} 
+                transparent 
+                opacity={0.8} 
+                blending={THREE.AdditiveBlending}
+                toneMapped={false}
+                depthWrite={false}
+            />
+        </points>
+    </group>
   );
 }
 
@@ -134,16 +144,12 @@ function ParticleShell({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // 1. Calculate the uneven surface radius at this specific angle
       const displacement = getRuggedDisplacement(theta, phi);
       const surfaceRadius = 1.0 + displacement;
 
-      // 2. SURFACE BIAS:
-      // Instead of filling the volume evenly, we cluster particles near the 'surfaceRadius'
-      // This makes the "Skin" visible so you see the bumps.
-      // Range: [surfaceRadius - 0.4] to [surfaceRadius]
-      const depth = Math.pow(Math.random(), 3) * 0.4; // Biased heavily towards 0 (surface)
-      const r = surfaceRadius - depth; 
+      // Fill from 0.25 (Core edge) to Surface
+      // Overlaps the core mesh slightly so there is no gap
+      const r = 0.25 + Math.pow(Math.random(), 2) * (surfaceRadius - 0.25); 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -162,10 +168,7 @@ function ParticleShell({ palette }: { palette: any }) {
 
   return (
     <group>
-      <mesh>
-        <sphereGeometry args={[0.2, 32, 32]} />
-        <meshBasicMaterial color="#000000" />
-      </mesh>
+      {/* DELETED: The black blocker mesh is gone */}
       
       <points>
         <bufferGeometry>
@@ -209,16 +212,14 @@ function ParticleSpikes({ count, palette }: { count: number, palette: any, seed:
       const radiusAtY = Math.sqrt(1 - y * y);
       
       const theta = phiMagic * i;
-      const phi = Math.acos(y); // Convert y back to phi for consistent noise lookup
+      const phi = Math.acos(y);
 
-      // 1. Calculate displacement so spike base sits ON the rugged surface
       const displacement = getRuggedDisplacement(theta, phi);
       const surfaceRadius = 1.0 + displacement; 
       
-      // Calculate Cartesian coordinates for the spike base
-      const x = surfaceRadius * Math.sin(phi) * Math.cos(theta);
-      const z = surfaceRadius * Math.sin(phi) * Math.sin(theta);
-      const yPos = surfaceRadius * Math.cos(phi);
+      const x = surfaceRadius * Math.cos(theta) * radiusAtY;
+      const z = surfaceRadius * Math.sin(theta) * radiusAtY;
+      const yPos = y * surfaceRadius;
 
       const pos = new THREE.Vector3(x, yPos, z);
       const rot = new THREE.Euler().setFromQuaternion(
