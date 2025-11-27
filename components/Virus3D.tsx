@@ -20,7 +20,6 @@ function getPalette(hue: number, alignment: Alignment) {
 
   return {
     // Primary: Center Core (Neon Green)
-    // Lowered lightness slightly so it stacks into a rich neon color, not white
     primary: `hsl(${primaryHue}, 100%, 50%)`, 
     primaryGlow: `hsl(${primaryHue}, 100%, 60%)`,
     
@@ -77,14 +76,16 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 // --- SUB-COMPONENTS ---
 
 function ParticleCore({ palette }: { palette: any }) {
-  // DISTINCT GREEN NUCLEUS
   const particles = useMemo(() => {
-    const count = 2500; // Dense core
+    const count = 3000; 
     const pos = new Float32Array(count * 3);
     
     for(let i=0; i<count; i++) {
-        // Radius 0 -> 0.32 (Slightly larger to overlap into shell)
-        const r = Math.pow(Math.random(), 0.5) * 0.32; 
+        // FIX: CHANGED DISTRIBUTION LOGIC
+        // Using Math.pow(..., 3) pushes particles TOWARDS 0 (the center)
+        // This creates a dense, solid core instead of a hollow ring.
+        const r = Math.pow(Math.random(), 3) * 0.35; 
+        
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         
@@ -108,9 +109,9 @@ function ParticleCore({ palette }: { palette: any }) {
         </bufferGeometry>
         <pointsMaterial 
             color={palette.primary} 
-            size={0.03} 
+            size={0.035} 
             transparent 
-            opacity={0.6} // Lower opacity prevents "White Blowout"
+            opacity={0.8} 
             blending={THREE.AdditiveBlending}
             toneMapped={false}
             depthWrite={false}
@@ -120,9 +121,8 @@ function ParticleCore({ palette }: { palette: any }) {
 }
 
 function ParticleShell({ palette }: { palette: any }) {
-  // DISTINCT PURPLE SHELL
   const particles = useMemo(() => {
-    const count = 7000; 
+    const count = 7500; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
     const colorSecondary = new THREE.Color(palette.secondary); 
@@ -131,10 +131,8 @@ function ParticleShell({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // LOGIC: Overlap Zone
-      // Start at 0.28 (Inside the core's 0.32 limit) -> No Black Gap
-      // End at 1.0 (Surface)
-      const r = 0.28 + Math.pow(Math.random(), 1.2) * 0.72; 
+      // Overlap slightly with core (0.25) to ensure no black gap
+      const r = 0.25 + Math.pow(Math.random(), 0.8) * 0.75; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -153,9 +151,9 @@ function ParticleShell({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* Inner blocker hidden deeper inside to allow blending */}
+      {/* Small black blocker deep inside */}
       <mesh>
-        <sphereGeometry args={[0.25, 32, 32]} />
+        <sphereGeometry args={[0.15, 32, 32]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
       
