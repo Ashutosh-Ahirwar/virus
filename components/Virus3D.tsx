@@ -19,11 +19,12 @@ function getPalette(hue: number, alignment: Alignment) {
   const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Primary: Center Glow (Neon Green)
-    primary: `hsl(${primaryHue}, 100%, 60%)`, 
-    primaryGlow: `hsl(${primaryHue}, 100%, 75%)`,
+    // Primary: Center Core (Neon Green)
+    // Lowered lightness slightly so it stacks into a rich neon color, not white
+    primary: `hsl(${primaryHue}, 100%, 50%)`, 
+    primaryGlow: `hsl(${primaryHue}, 100%, 60%)`,
     
-    // Secondary: Outer Shell (Purple)
+    // Secondary: Body Shell (Purple)
     secondary: `hsl(${secondaryHue}, 90%, 65%)`, 
     
     opacity: alignment === 'Parasitic' ? 1.0 : 0.9,
@@ -64,8 +65,8 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   return (
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
-        {/* Merged Core and Shell into one Gradient Body */}
-        <GradientBody palette={palette} />
+        <ParticleCore palette={palette} />
+        <ParticleShell palette={palette} />
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
       </group>
@@ -75,24 +76,65 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 // --- SUB-COMPONENTS ---
 
-function GradientBody({ palette }: { palette: any }) {
+function ParticleCore({ palette }: { palette: any }) {
+  // DISTINCT GREEN NUCLEUS
   const particles = useMemo(() => {
-    const count = 12000; // Dense cloud
+    const count = 2500; // Dense core
+    const pos = new Float32Array(count * 3);
+    
+    for(let i=0; i<count; i++) {
+        // Radius 0 -> 0.32 (Slightly larger to overlap into shell)
+        const r = Math.pow(Math.random(), 0.5) * 0.32; 
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        
+        pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+        pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+        pos[i*3+2] = r * Math.cos(phi);
+    }
+    return pos;
+  }, []);
+
+  return (
+    <points>
+        <bufferGeometry>
+            <bufferAttribute 
+                attach="attributes-position" 
+                count={particles.length/3} 
+                array={particles} 
+                itemSize={3}
+                args={[particles, 3]} 
+            />
+        </bufferGeometry>
+        <pointsMaterial 
+            color={palette.primary} 
+            size={0.03} 
+            transparent 
+            opacity={0.6} // Lower opacity prevents "White Blowout"
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
+            depthWrite={false}
+        />
+    </points>
+  );
+}
+
+function ParticleShell({ palette }: { palette: any }) {
+  // DISTINCT PURPLE SHELL
+  const particles = useMemo(() => {
+    const count = 7000; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
-    
-    const colorCore = new THREE.Color(palette.primaryGlow);
-    const colorShell = new THREE.Color(palette.secondary);
-    const tempColor = new THREE.Color();
+    const colorSecondary = new THREE.Color(palette.secondary); 
 
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // LOGIC: Seamless Radius 0 -> 1.0
-      // We bias lightly towards the outside to keep the shape defined, 
-      // but ensure plenty of particles are in the center.
-      const r = Math.pow(Math.random(), 0.8) * 1.0; 
+      // LOGIC: Overlap Zone
+      // Start at 0.28 (Inside the core's 0.32 limit) -> No Black Gap
+      // End at 1.0 (Surface)
+      const r = 0.28 + Math.pow(Math.random(), 1.2) * 0.72; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -102,39 +144,21 @@ function GradientBody({ palette }: { palette: any }) {
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      // COLOR GRADIENT LOGIC
-      // r < 0.3  : Pure Core Color (Green)
-      // r > 0.6  : Pure Shell Color (Purple)
-      // 0.3 - 0.6: Smooth Mix
-      
-      if (r < 0.3) {
-          cols[i*3] = colorCore.r;
-          cols[i*3+1] = colorCore.g;
-          cols[i*3+2] = colorCore.b;
-      } else if (r > 0.6) {
-          cols[i*3] = colorShell.r;
-          cols[i*3+1] = colorShell.g;
-          cols[i*3+2] = colorShell.b;
-      } else {
-          // Lerp (Linear Interpolation) for smooth transition
-          const alpha = (r - 0.3) / 0.3; // 0 to 1
-          tempColor.lerpColors(colorCore, colorShell, alpha);
-          cols[i*3] = tempColor.r;
-          cols[i*3+1] = tempColor.g;
-          cols[i*3+2] = tempColor.b;
-      }
+      cols[i*3] = colorSecondary.r;
+      cols[i*3+1] = colorSecondary.g;
+      cols[i*3+2] = colorSecondary.b;
     }
     return { pos, cols };
   }, [palette]);
 
   return (
     <group>
-      {/* Tiny inner black blocker to prevent "see-through" artifacts */}
+      {/* Inner blocker hidden deeper inside to allow blending */}
       <mesh>
-        <sphereGeometry args={[0.1, 16, 16]} />
+        <sphereGeometry args={[0.25, 32, 32]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
-
+      
       <points>
         <bufferGeometry>
           <bufferAttribute
