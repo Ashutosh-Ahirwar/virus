@@ -14,18 +14,25 @@ interface Virus3DProps {
   tokenId: number;
 }
 
+// === 1. STRONG DISPLACEMENT LOGIC ===
+function getRuggedDisplacement(theta: number, phi: number) {
+  // Lower frequency = Bigger, more noticeable lumps
+  // Higher amplitude = Deeper valleys
+  const lobe = Math.sin(theta * 5) * Math.cos(phi * 5); // 5 distinct lobes
+  const micro = Math.cos(theta * 20 + phi * 10); // surface roughness
+  
+  // Amplitude increased to 0.15 (was 0.08) for visible shape change
+  return (lobe * 0.15) + (micro * 0.03); 
+}
+
 function getPalette(hue: number, alignment: Alignment) {
   const primaryHue = hue; 
   const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Primary: Center Core (Neon Green)
     primary: `hsl(${primaryHue}, 100%, 50%)`, 
     primaryGlow: `hsl(${primaryHue}, 100%, 60%)`,
-    
-    // Secondary: Body Shell (Purple)
     secondary: `hsl(${secondaryHue}, 90%, 65%)`, 
-    
     opacity: alignment === 'Parasitic' ? 1.0 : 0.9,
   };
 }
@@ -33,7 +40,6 @@ function getPalette(hue: number, alignment: Alignment) {
 export function Virus3D({ tokenId }: Virus3DProps) {
   const rootRef = useRef<THREE.Group>(null);
 
-  // === 1. METADATA GENERATION ===
   const seedHex = keccak256(
     encodePacked(
       ['uint256', 'uint256', 'string'],
@@ -49,7 +55,6 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   
   const palette = useMemo(() => getPalette(hue, alignment), [hue, alignment]);
 
-  // === 2. ANIMATION ===
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
     if (!rootRef.current) return;
@@ -77,12 +82,12 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 function ParticleCore({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 2000; 
+    const count = 3500; 
     const pos = new Float32Array(count * 3);
     
     for(let i=0; i<count; i++) {
-        // Cloud Radius: 0.1 to 0.35
-        const r = 0.1 + Math.random() * 0.25; 
+        // Solid Center (Radius 0 -> 0.35)
+        const r = Math.pow(Math.random(), 2.5) * 0.35; 
         
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -95,46 +100,32 @@ function ParticleCore({ palette }: { palette: any }) {
   }, []);
 
   return (
-    <group>
-        {/* FIX: Solid Glowing Sphere in center to fill the "Black Hole" */}
-        <mesh>
-            <sphereGeometry args={[0.15, 32, 32]} />
-            <meshBasicMaterial 
-                color={palette.primary} 
-                toneMapped={false}
-                transparent
-                opacity={0.9}
+    <points>
+        <bufferGeometry>
+            <bufferAttribute 
+                attach="attributes-position" 
+                count={particles.length/3} 
+                array={particles} 
+                itemSize={3}
+                args={[particles, 3]} 
             />
-        </mesh>
-
-        {/* Texture Particles around it */}
-        <points>
-            <bufferGeometry>
-                <bufferAttribute 
-                    attach="attributes-position" 
-                    count={particles.length/3} 
-                    array={particles} 
-                    itemSize={3}
-                    args={[particles, 3]} 
-                />
-            </bufferGeometry>
-            <pointsMaterial 
-                color={palette.primaryGlow} 
-                size={0.035} 
-                transparent 
-                opacity={0.8} 
-                blending={THREE.AdditiveBlending}
-                toneMapped={false}
-                depthWrite={false}
-            />
-        </points>
-    </group>
+        </bufferGeometry>
+        <pointsMaterial 
+            color={palette.primary} 
+            size={0.035} 
+            transparent 
+            opacity={0.8} 
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
+            depthWrite={false}
+        />
+    </points>
   );
 }
 
 function ParticleShell({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 7500; 
+    const count = 12000; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
     const colorSecondary = new THREE.Color(palette.secondary); 
@@ -143,8 +134,16 @@ function ParticleShell({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // Radius 0.25 to 1.0 (Overlaps core slightly)
-      const r = 0.25 + Math.pow(Math.random(), 0.8) * 0.75; 
+      // 1. Calculate the uneven surface radius at this specific angle
+      const displacement = getRuggedDisplacement(theta, phi);
+      const surfaceRadius = 1.0 + displacement;
+
+      // 2. SURFACE BIAS:
+      // Instead of filling the volume evenly, we cluster particles near the 'surfaceRadius'
+      // This makes the "Skin" visible so you see the bumps.
+      // Range: [surfaceRadius - 0.4] to [surfaceRadius]
+      const depth = Math.pow(Math.random(), 3) * 0.4; // Biased heavily towards 0 (surface)
+      const r = surfaceRadius - depth; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -163,7 +162,10 @@ function ParticleShell({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* FIX: Removed the Black Blocker Mesh that was creating the hole */}
+      <mesh>
+        <sphereGeometry args={[0.2, 32, 32]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
       
       <points>
         <bufferGeometry>
@@ -200,17 +202,27 @@ function ParticleShell({ palette }: { palette: any }) {
 function ParticleSpikes({ count, palette }: { count: number, palette: any, seed: number }) {
   const spikes = useMemo(() => {
     const temp = [];
-    const phi = Math.PI * (3 - Math.sqrt(5)); 
+    const phiMagic = Math.PI * (3 - Math.sqrt(5)); 
+    
     for (let i = 0; i < count; i++) {
       const y = 1 - (i / (count - 1)) * 2;
-      const radius = Math.sqrt(1 - y * y);
-      const theta = phi * i;
-      const x = Math.cos(theta) * radius;
-      const z = Math.sin(theta) * radius;
+      const radiusAtY = Math.sqrt(1 - y * y);
       
-      const pos = new THREE.Vector3(x, y, z).normalize();
+      const theta = phiMagic * i;
+      const phi = Math.acos(y); // Convert y back to phi for consistent noise lookup
+
+      // 1. Calculate displacement so spike base sits ON the rugged surface
+      const displacement = getRuggedDisplacement(theta, phi);
+      const surfaceRadius = 1.0 + displacement; 
+      
+      // Calculate Cartesian coordinates for the spike base
+      const x = surfaceRadius * Math.sin(phi) * Math.cos(theta);
+      const z = surfaceRadius * Math.sin(phi) * Math.sin(theta);
+      const yPos = surfaceRadius * Math.cos(phi);
+
+      const pos = new THREE.Vector3(x, yPos, z);
       const rot = new THREE.Euler().setFromQuaternion(
-        new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos)
+        new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), pos.clone().normalize())
       );
       temp.push({ pos, rot });
     }
