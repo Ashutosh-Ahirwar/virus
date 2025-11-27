@@ -19,11 +19,11 @@ function getPalette(hue: number, alignment: Alignment) {
   const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Primary: Spikes and Center Glow (Neon Green)
+    // Primary: Center Glow (Neon Green)
     primary: `hsl(${primaryHue}, 100%, 60%)`, 
     primaryGlow: `hsl(${primaryHue}, 100%, 75%)`,
     
-    // Secondary: Body Shell (Purple)
+    // Secondary: Outer Shell (Purple)
     secondary: `hsl(${secondaryHue}, 90%, 65%)`, 
     
     opacity: alignment === 'Parasitic' ? 1.0 : 0.9,
@@ -57,7 +57,6 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     rootRef.current.rotation.y = t * 0.12;
     rootRef.current.rotation.z = Math.sin(t * 0.2) * 0.05;
 
-    // Pulse
     const scaleVar = 1.8 * (1 + Math.sin(t * 1.5) * 0.02);
     rootRef.current.scale.setScalar(scaleVar); 
   });
@@ -65,8 +64,8 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   return (
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
-        <ParticleCore palette={palette} />
-        <ParticleShell palette={palette} />
+        {/* Merged Core and Shell into one Gradient Body */}
+        <GradientBody palette={palette} />
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
       </group>
@@ -76,64 +75,24 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 // --- SUB-COMPONENTS ---
 
-function ParticleCore({ palette }: { palette: any }) {
-  // REPLACED SOLID SPHERE WITH PARTICLES
-  // Densely packed particles in the center (Radius 0 -> 0.3)
+function GradientBody({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 1200; // High density for small area
-    const pos = new Float32Array(count * 3);
-    
-    for(let i=0; i<count; i++) {
-        // Power 0.5 distributes them evenly in the volume (not all at center)
-        const r = Math.pow(Math.random(), 0.5) * 0.3; 
-        const theta = Math.random() * Math.PI * 2;
-        const phi = Math.acos(2 * Math.random() - 1);
-        
-        pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
-        pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
-        pos[i*3+2] = r * Math.cos(phi);
-    }
-    return pos;
-  }, []);
-
-  return (
-    <points>
-        <bufferGeometry>
-            <bufferAttribute 
-                attach="attributes-position" 
-                count={particles.length/3} 
-                array={particles} 
-                itemSize={3}
-                args={[particles, 3]} 
-            />
-        </bufferGeometry>
-        <pointsMaterial 
-            color={palette.primaryGlow} // Green Glow
-            size={0.035} 
-            transparent 
-            opacity={0.8} 
-            blending={THREE.AdditiveBlending}
-            toneMapped={false}
-        />
-    </points>
-  );
-}
-
-function ParticleShell({ palette }: { palette: any }) {
-  // The outer Purple Shell (Radius 0.3 -> 1.0)
-  const particles = useMemo(() => {
-    const count = 8000; 
+    const count = 12000; // Dense cloud
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
-    const colorSecondary = new THREE.Color(palette.secondary); 
+    
+    const colorCore = new THREE.Color(palette.primaryGlow);
+    const colorShell = new THREE.Color(palette.secondary);
+    const tempColor = new THREE.Color();
 
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // LOGIC: Start exactly where the core ends (0.3)
-      // Push most particles towards the surface (1.0) for a "Shell" look
-      const r = 0.3 + Math.pow(Math.random(), 1.5) * 0.7; 
+      // LOGIC: Seamless Radius 0 -> 1.0
+      // We bias lightly towards the outside to keep the shape defined, 
+      // but ensure plenty of particles are in the center.
+      const r = Math.pow(Math.random(), 0.8) * 1.0; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -143,21 +102,39 @@ function ParticleShell({ palette }: { palette: any }) {
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      cols[i*3] = colorSecondary.r;
-      cols[i*3+1] = colorSecondary.g;
-      cols[i*3+2] = colorSecondary.b;
+      // COLOR GRADIENT LOGIC
+      // r < 0.3  : Pure Core Color (Green)
+      // r > 0.6  : Pure Shell Color (Purple)
+      // 0.3 - 0.6: Smooth Mix
+      
+      if (r < 0.3) {
+          cols[i*3] = colorCore.r;
+          cols[i*3+1] = colorCore.g;
+          cols[i*3+2] = colorCore.b;
+      } else if (r > 0.6) {
+          cols[i*3] = colorShell.r;
+          cols[i*3+1] = colorShell.g;
+          cols[i*3+2] = colorShell.b;
+      } else {
+          // Lerp (Linear Interpolation) for smooth transition
+          const alpha = (r - 0.3) / 0.3; // 0 to 1
+          tempColor.lerpColors(colorCore, colorShell, alpha);
+          cols[i*3] = tempColor.r;
+          cols[i*3+1] = tempColor.g;
+          cols[i*3+2] = tempColor.b;
+      }
     }
     return { pos, cols };
   }, [palette]);
 
   return (
     <group>
-      {/* Tiny black blocker just to prevent weird see-through artifacts at exact center */}
+      {/* Tiny inner black blocker to prevent "see-through" artifacts */}
       <mesh>
-        <sphereGeometry args={[0.2, 32, 32]} />
+        <sphereGeometry args={[0.1, 16, 16]} />
         <meshBasicMaterial color="#000000" />
       </mesh>
-      
+
       <points>
         <bufferGeometry>
           <bufferAttribute
@@ -177,7 +154,7 @@ function ParticleShell({ palette }: { palette: any }) {
         </bufferGeometry>
         <pointsMaterial
           vertexColors
-          size={0.025}
+          size={0.03}
           transparent
           opacity={palette.opacity}
           sizeAttenuation={true}
