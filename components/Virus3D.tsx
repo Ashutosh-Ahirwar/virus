@@ -19,12 +19,11 @@ function getPalette(hue: number, alignment: Alignment) {
   const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Primary: Spikes and Center Dot (Neon Green)
+    // Primary: Spikes and CENTER GLOW (Neon Green)
     primary: `hsl(${primaryHue}, 100%, 60%)`, 
     primaryGlow: `hsl(${primaryHue}, 100%, 75%)`,
     
     // Secondary: Body Shell (Purple)
-    // FIX: Increased Lightness from 35% to 65% so it glows on black
     secondary: `hsl(${secondaryHue}, 90%, 65%)`, 
     
     opacity: alignment === 'Parasitic' ? 1.0 : 0.9,
@@ -66,6 +65,9 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   return (
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
+        {/* NEW: Dedicated Inner Glow Sphere */}
+        <CoreGlow palette={palette} />
+        
         <ParticleBody palette={palette} />
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
@@ -76,32 +78,38 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 // --- SUB-COMPONENTS ---
 
+function CoreGlow({ palette }: { palette: any }) {
+  // This mimics the solid "Center Dot" seen in your SVG
+  return (
+    <mesh>
+      <sphereGeometry args={[0.28, 32, 32]} />
+      <meshBasicMaterial 
+        color={palette.primary} 
+        transparent 
+        opacity={0.8} 
+        blending={THREE.AdditiveBlending} // Makes it glow "hot"
+        toneMapped={false} // Keeps it Neon
+      />
+    </mesh>
+  );
+}
+
 function ParticleBody({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    // FIX: Increased count to 10,000 for a solid, detailed look
-    const count = 10000; 
+    const count = 8000; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
     
-    const colorPrimary = new THREE.Color(palette.primary);   // Green Core
-    const colorSecondary = new THREE.Color(palette.secondary); // Purple Body
+    // We only use Secondary color here because CoreGlow handles the primary center
+    const colorSecondary = new THREE.Color(palette.secondary); 
 
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // LOGIC: Distinct separation between Core and Shell
-      // 15% Core (Radius 0-0.3), 85% Shell (Radius 0.3-1.0)
-      const isCore = Math.random() > 0.85; 
-      
-      let r;
-      if (isCore) {
-         // Solid Core Dot
-         r = Math.pow(Math.random(), 0.5) * 0.3;
-      } else {
-         // Thick Shell (Hollow center)
-         r = 0.4 + Math.pow(Math.random(), 2) * 0.6; 
-      }
+      // LOGIC: A thick shell with a hollow center (where the CoreGlow sits)
+      // Radius from 0.35 to 1.0
+      const r = 0.35 + Math.pow(Math.random(), 2) * 0.65; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -111,27 +119,15 @@ function ParticleBody({ palette }: { palette: any }) {
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      if (isCore) {
-        cols[i*3] = colorPrimary.r;
-        cols[i*3+1] = colorPrimary.g;
-        cols[i*3+2] = colorPrimary.b;
-      } else {
-        cols[i*3] = colorSecondary.r;
-        cols[i*3+1] = colorSecondary.g;
-        cols[i*3+2] = colorSecondary.b;
-      }
+      cols[i*3] = colorSecondary.r;
+      cols[i*3+1] = colorSecondary.g;
+      cols[i*3+2] = colorSecondary.b;
     }
     return { pos, cols };
   }, [palette]);
 
   return (
     <group>
-      {/* Black Inner Sphere to block transparency artifacts */}
-      <mesh>
-        <sphereGeometry args={[0.35, 32, 32]} />
-        <meshBasicMaterial color="#000000" />
-      </mesh>
-      
       <points>
         <bufferGeometry>
           <bufferAttribute
@@ -151,7 +147,7 @@ function ParticleBody({ palette }: { palette: any }) {
         </bufferGeometry>
         <pointsMaterial
           vertexColors
-          size={0.025} // Finer detail
+          size={0.025} 
           transparent
           opacity={palette.opacity}
           sizeAttenuation={true}
@@ -201,21 +197,20 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
     const pos = new Float32Array(pCount * 3);
     
     for(let i=0; i<pCount; i++) {
-      // 40% Head, 60% Stalk
       const isHead = Math.random() > 0.6;
       
       let x, y, z;
       if (isHead) {
-        // Head: Distinct Bulb
+        // Head
         const r = 0.1 * Math.cbrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         
         x = r * Math.sin(phi) * Math.cos(theta);
-        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.6; // Moved tip slightly out
+        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.6; 
         z = r * Math.cos(phi);
       } else {
-        // Stalk: Straight Line
+        // Stalk
         const r = 0.012 * Math.sqrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const h = Math.random() * 0.6; 
