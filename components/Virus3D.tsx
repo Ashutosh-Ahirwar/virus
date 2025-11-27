@@ -3,7 +3,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Float } from '@react-three/drei';
+import { Float, Sparkles } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
 
 const ALIGNMENTS = ['Symbiotic', 'Parasitic'] as const;
@@ -14,21 +14,19 @@ interface Virus3DProps {
   tokenId: number;
 }
 
-// --- NEON PALETTE ---
 function getPalette(hue: number, alignment: Alignment) {
   const primaryHue = hue; 
   const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Primary (Spikes/Core): Bright Neon
-    primary: `hsl(${primaryHue}, 100%, 60%)`,
-    primaryGlow: `hsl(${primaryHue}, 100%, 80%)`,
+    // Primary: Spikes and CENTER DOT (e.g. Neon Green)
+    primary: `hsl(${primaryHue}, 100%, 50%)`,
+    primaryGlow: `hsl(${primaryHue}, 100%, 60%)`,
     
-    // Body: Deep, dark, distinct from core
-    body: `hsl(${secondaryHue}, 70%, 20%)`, 
-    bodyHighlight: `hsl(${secondaryHue}, 80%, 40%)`,
+    // Secondary: MAIN BODY Shell (e.g. Purple)
+    secondary: `hsl(${secondaryHue}, 70%, 35%)`, 
     
-    opacity: alignment === 'Parasitic' ? 0.9 : 0.6,
+    opacity: alignment === 'Parasitic' ? 1.0 : 0.8,
   };
 }
 
@@ -59,17 +57,16 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     rootRef.current.rotation.y = t * 0.1;
     rootRef.current.rotation.z = Math.sin(t * 0.15) * 0.05;
 
-    // Pulse
-    const scaleVar = 1.8 * (1 + Math.sin(t * 2.0) * 0.02);
+    // Subtle breathing
+    const scaleVar = 1.8 * (1 + Math.sin(t * 1.5) * 0.02);
     rootRef.current.scale.setScalar(scaleVar); 
   });
 
   return (
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
-        <InnerCore palette={palette} />
-        <OuterShell palette={palette} />
-        <ParticleRing palette={palette} /> 
+        <ParticleBody palette={palette} />
+        {/* REMOVED RING COMPONENT */}
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
       </group>
@@ -79,46 +76,33 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 // --- SUB-COMPONENTS ---
 
-function InnerCore({ palette }: { palette: any }) {
-  // A distinct, bright nucleus in the center
-  return (
-    <group>
-      {/* Solid bright core */}
-      <mesh>
-        <sphereGeometry args={[0.35, 32, 32]} />
-        <meshBasicMaterial color={palette.primary} toneMapped={false} />
-      </mesh>
-      
-      {/* Glow halo around core */}
-      <mesh>
-        <sphereGeometry args={[0.5, 32, 32]} />
-        <meshBasicMaterial 
-          color={palette.primary} 
-          transparent 
-          opacity={0.3} 
-          toneMapped={false} 
-          blending={THREE.AdditiveBlending} 
-          side={THREE.BackSide}
-        />
-      </mesh>
-    </group>
-  );
-}
-
-function OuterShell({ palette }: { palette: any }) {
+function ParticleBody({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 3000; 
+    // INCREASED COUNT for "Detailed" texture
+    const count = 6000; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
-    const colorBody = new THREE.Color(palette.body);
-    const colorHigh = new THREE.Color(palette.bodyHighlight);
+    
+    const colorPrimary = new THREE.Color(palette.primary);   // Center Dot
+    const colorSecondary = new THREE.Color(palette.secondary); // Main Body
 
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // SHELL RADIUS: Keep points between 0.8 and 1.0 (Hollow inside)
-      const r = 0.8 + Math.random() * 0.2; 
+      // LOGIC: Create a dense core and a shell
+      // 20% of points in the "Core Dot", 80% in the "Body Shell"
+      const isCore = Math.random() > 0.8; 
+      
+      let r;
+      if (isCore) {
+         // Tiny distinct dot in center (Radius 0 to 0.25)
+         r = Math.random() * 0.25;
+      } else {
+         // Main Body Shell (Radius 0.25 to 0.95)
+         // Biased towards surface for "Solid" look
+         r = 0.25 + Math.pow(Math.random(), 0.5) * 0.7; 
+      }
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -128,15 +112,17 @@ function OuterShell({ palette }: { palette: any }) {
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      // Color variation for texture
-      if (Math.random() > 0.8) {
-        cols[i*3] = colorHigh.r;
-        cols[i*3+1] = colorHigh.g;
-        cols[i*3+2] = colorHigh.b;
+      // COLOR MAPPING:
+      // If Core -> Primary Color (Green)
+      // If Body -> Secondary Color (Purple)
+      if (isCore) {
+        cols[i*3] = colorPrimary.r;
+        cols[i*3+1] = colorPrimary.g;
+        cols[i*3+2] = colorPrimary.b;
       } else {
-        cols[i*3] = colorBody.r;
-        cols[i*3+1] = colorBody.g;
-        cols[i*3+2] = colorBody.b;
+        cols[i*3] = colorSecondary.r;
+        cols[i*3+1] = colorSecondary.g;
+        cols[i*3+2] = colorSecondary.b;
       }
     }
     return { pos, cols };
@@ -144,7 +130,11 @@ function OuterShell({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* NO BLACK OCCLUSION SPHERE HERE - Allows seeing the InnerCore */}
+      {/* Solid inner core to block background stars (Makes it look solid/detailed) */}
+      <mesh>
+        <sphereGeometry args={[0.9, 32, 32]} />
+        <meshBasicMaterial color="#000000" />
+      </mesh>
       
       <points>
         <bufferGeometry>
@@ -165,68 +155,17 @@ function OuterShell({ palette }: { palette: any }) {
         </bufferGeometry>
         <pointsMaterial
           vertexColors
-          size={0.03}
+          size={0.03} // Slightly smaller for finer detail
           transparent
-          // LOW OPACITY to see through to the core
-          opacity={0.4} 
+          opacity={palette.opacity}
           sizeAttenuation={true}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
           toneMapped={false} 
         />
       </points>
-      
-      {/* Faint wireframe for structure */}
-      <mesh>
-        <sphereGeometry args={[0.95, 24, 24]} />
-        <meshBasicMaterial 
-            color={palette.bodyHighlight} 
-            wireframe 
-            transparent 
-            opacity={0.05} 
-            toneMapped={false}
-        />
-      </mesh>
     </group>
   );
-}
-
-function ParticleRing({ palette }: { palette: any }) {
-  const particles = useMemo(() => {
-    const count = 300; 
-    const pos = new Float32Array(count * 3);
-    for(let i=0; i<count; i++) {
-        const theta = Math.random() * Math.PI * 2;
-        const r = 1.3 + (Math.random() * 0.05); 
-        
-        pos[i*3] = r * Math.cos(theta);
-        pos[i*3+1] = r * Math.sin(theta);
-        pos[i*3+2] = (Math.random() - 0.5) * 0.05; 
-    }
-    return pos;
-  }, []);
-
-  return (
-    <points rotation={[0, 0, Math.PI/8]}>
-        <bufferGeometry>
-            <bufferAttribute 
-                attach="attributes-position" 
-                count={particles.length/3} 
-                array={particles} 
-                itemSize={3}
-                args={[particles, 3]}
-            />
-        </bufferGeometry>
-        <pointsMaterial 
-            color={palette.primary} 
-            size={0.025} 
-            transparent 
-            opacity={0.5} 
-            blending={THREE.AdditiveBlending}
-            toneMapped={false} 
-        />
-    </points>
-  )
 }
 
 function ParticleSpikes({ count, palette }: { count: number, palette: any, seed: number }) {
@@ -262,25 +201,25 @@ function ParticleSpikes({ count, palette }: { count: number, palette: any, seed:
 
 function SingleSpikeCloud({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const pCount = 150;
+    const pCount = 200;
     const pos = new Float32Array(pCount * 3);
     
     for(let i=0; i<pCount; i++) {
-      const rVal = Math.random();
-      const isHead = rVal > 0.6;
+      // 40% Head, 60% Stalk
+      const isHead = Math.random() > 0.6;
       
       let x, y, z;
       if (isHead) {
-        // Head
-        const r = 0.12 * Math.cbrt(Math.random()); 
+        // Head: Distinct Bulb
+        const r = 0.1 * Math.cbrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         
         x = r * Math.sin(phi) * Math.cos(theta);
-        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5;
+        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5; // Tip Position
         z = r * Math.cos(phi);
       } else {
-        // Stalk
+        // Stalk: Straight Line
         const r = 0.015 * Math.sqrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const h = Math.random() * 0.5; 
@@ -309,7 +248,7 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
             />
         </bufferGeometry>
         <pointsMaterial 
-          color={palette.primaryGlow}
+          color={palette.primaryGlow} // Use Neon Green
           size={0.03} 
           transparent 
           opacity={1.0} 
@@ -327,7 +266,7 @@ function Atmosphere({ palette }: { palette: any }) {
     const count = 50;
     const pos = new Float32Array(count * 3);
     for(let i=0; i<count; i++) {
-      const r = 2.5 + Math.random() * 2; 
+      const r = 2.5 + Math.random() * 3;
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
@@ -351,7 +290,7 @@ function Atmosphere({ palette }: { palette: any }) {
       </bufferGeometry>
       <pointsMaterial 
         color={palette.primary} 
-        size={0.05} 
+        size={0.04} 
         transparent 
         opacity={0.3} 
         sizeAttenuation 
