@@ -77,14 +77,12 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 function ParticleCore({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 3000; 
+    const count = 2000; 
     const pos = new Float32Array(count * 3);
     
     for(let i=0; i<count; i++) {
-        // FIX: CHANGED DISTRIBUTION LOGIC
-        // Using Math.pow(..., 3) pushes particles TOWARDS 0 (the center)
-        // This creates a dense, solid core instead of a hollow ring.
-        const r = Math.pow(Math.random(), 3) * 0.35; 
+        // Cloud Radius: 0.1 to 0.35
+        const r = 0.1 + Math.random() * 0.25; 
         
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -97,26 +95,40 @@ function ParticleCore({ palette }: { palette: any }) {
   }, []);
 
   return (
-    <points>
-        <bufferGeometry>
-            <bufferAttribute 
-                attach="attributes-position" 
-                count={particles.length/3} 
-                array={particles} 
-                itemSize={3}
-                args={[particles, 3]} 
+    <group>
+        {/* FIX: Solid Glowing Sphere in center to fill the "Black Hole" */}
+        <mesh>
+            <sphereGeometry args={[0.15, 32, 32]} />
+            <meshBasicMaterial 
+                color={palette.primary} 
+                toneMapped={false}
+                transparent
+                opacity={0.9}
             />
-        </bufferGeometry>
-        <pointsMaterial 
-            color={palette.primary} 
-            size={0.035} 
-            transparent 
-            opacity={0.8} 
-            blending={THREE.AdditiveBlending}
-            toneMapped={false}
-            depthWrite={false}
-        />
-    </points>
+        </mesh>
+
+        {/* Texture Particles around it */}
+        <points>
+            <bufferGeometry>
+                <bufferAttribute 
+                    attach="attributes-position" 
+                    count={particles.length/3} 
+                    array={particles} 
+                    itemSize={3}
+                    args={[particles, 3]} 
+                />
+            </bufferGeometry>
+            <pointsMaterial 
+                color={palette.primaryGlow} 
+                size={0.035} 
+                transparent 
+                opacity={0.8} 
+                blending={THREE.AdditiveBlending}
+                toneMapped={false}
+                depthWrite={false}
+            />
+        </points>
+    </group>
   );
 }
 
@@ -131,7 +143,7 @@ function ParticleShell({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // Overlap slightly with core (0.25) to ensure no black gap
+      // Radius 0.25 to 1.0 (Overlaps core slightly)
       const r = 0.25 + Math.pow(Math.random(), 0.8) * 0.75; 
       
       const x = r * Math.sin(phi) * Math.cos(theta);
@@ -151,11 +163,7 @@ function ParticleShell({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* Small black blocker deep inside */}
-      <mesh>
-        <sphereGeometry args={[0.15, 32, 32]} />
-        <meshBasicMaterial color="#000000" />
-      </mesh>
+      {/* FIX: Removed the Black Blocker Mesh that was creating the hole */}
       
       <points>
         <bufferGeometry>
