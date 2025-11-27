@@ -14,25 +14,22 @@ interface Virus3DProps {
   tokenId: number;
 }
 
-// --- UPDATED PALETTE: Dual Colors (Spikes vs Body) ---
+// --- NEON PALETTE ---
 function getPalette(hue: number, alignment: Alignment) {
-  // SVG shows high contrast (e.g. Green Spikes vs Purple Body).
-  // We use the hue for the Spikes/Ring (Primary)
-  // We use the Complementary hue for the Body (Secondary)
-  
-  const primaryHue = hue;
-  const secondaryHue = (hue + 180) % 360; // Complementary color
+  const primaryHue = hue; 
+  const secondaryHue = (hue + 180) % 360; 
 
   return {
-    // Spikes, Ring, Core Dot (Bright Neon)
-    primary: `hsl(${primaryHue}, 90%, 60%)`,
-    primaryGlow: `hsl(${primaryHue}, 100%, 80%)`,
+    // Primary (Spikes/Ring): High Saturation, Medium Lightness for true Neon
+    primary: `hsl(${primaryHue}, 100%, 50%)`,
     
-    // Main Body (Darker, contrasting)
-    body: `hsl(${secondaryHue}, 60%, 40%)`, 
-    bodyHighlight: `hsl(${secondaryHue}, 80%, 60%)`,
+    // Body: Darker, saturated background color
+    body: `hsl(${secondaryHue}, 80%, 25%)`, 
     
-    opacity: alignment === 'Parasitic' ? 0.9 : 0.7,
+    // Highlights
+    glow: `hsl(${primaryHue}, 100%, 60%)`,
+    
+    opacity: alignment === 'Parasitic' ? 1.0 : 0.8,
   };
 }
 
@@ -40,8 +37,6 @@ export function Virus3D({ tokenId }: Virus3DProps) {
   const rootRef = useRef<THREE.Group>(null);
 
   // === 1. METADATA GENERATION ===
-  // Note: If colors still don't match exactly, the seed string 'VIRUS_EVO_V1' 
-  // might differ from your smart contract's seed string.
   const seedHex = keccak256(
     encodePacked(
       ['uint256', 'uint256', 'string'],
@@ -65,8 +60,8 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     rootRef.current.rotation.y = t * 0.1;
     rootRef.current.rotation.z = Math.sin(t * 0.15) * 0.05;
 
-    // Gentle floating pulse
-    const scaleVar = 1.8 * (1 + Math.sin(t * 1.5) * 0.02);
+    // Pulse
+    const scaleVar = 1.8 * (1 + Math.sin(t * 2.0) * 0.02);
     rootRef.current.scale.setScalar(scaleVar); 
   });
 
@@ -74,7 +69,6 @@ export function Virus3D({ tokenId }: Virus3DProps) {
     <Float speed={1.5} rotationIntensity={0.2} floatIntensity={0.4}>
       <group ref={rootRef}>
         <ParticleBody palette={palette} />
-        {/* Added Ring Component to match SVG */}
         <ParticleRing palette={palette} /> 
         <ParticleSpikes count={spikeCount} palette={palette} seed={Number(seed % 100000n)} />
         <Atmosphere palette={palette} />
@@ -87,21 +81,19 @@ export function Virus3D({ tokenId }: Virus3DProps) {
 
 function ParticleBody({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 4000; 
+    const count = 4500; 
     const pos = new Float32Array(count * 3);
     const cols = new Float32Array(count * 3);
     const colorBody = new THREE.Color(palette.body);
-    const colorHigh = new THREE.Color(palette.bodyHighlight);
-    const colorCore = new THREE.Color(palette.primary); // Center dot color
+    const colorCore = new THREE.Color(palette.primary);
 
     for (let i = 0; i < count; i++) {
-      // 1. Geometry: Sphere with denser core
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // Radius variation: Some deep inside (core), most on surface
-      const isCore = Math.random() > 0.85; 
-      const r = isCore ? Math.random() * 0.4 : (0.9 + Math.random() * 0.1);
+      // Visual Trick: Make the core (center dot) very dense and distinct
+      const isCore = Math.random() > 0.92; 
+      const r = isCore ? (Math.random() * 0.25) : (0.9 + Math.random() * 0.05);
       
       const x = r * Math.sin(phi) * Math.cos(theta);
       const y = r * Math.sin(phi) * Math.sin(theta);
@@ -111,14 +103,11 @@ function ParticleBody({ palette }: { palette: any }) {
       pos[i * 3 + 1] = y;
       pos[i * 3 + 2] = z;
 
-      // 2. Color: Gradient from Core (Primary) to Surface (Secondary)
       if (isCore) {
-        // Bright center dot like in SVG
         cols[i*3] = colorCore.r;
         cols[i*3+1] = colorCore.g;
         cols[i*3+2] = colorCore.b;
       } else {
-        // Surface gradient
         cols[i*3] = colorBody.r;
         cols[i*3+1] = colorBody.g;
         cols[i*3+2] = colorBody.b;
@@ -129,10 +118,10 @@ function ParticleBody({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* Black Occlusion Sphere */}
+      {/* Black sphere to block transparency issues */}
       <mesh>
-        <sphereGeometry args={[0.85, 32, 32]} />
-        <meshBasicMaterial color="#050505" />
+        <sphereGeometry args={[0.88, 32, 32]} />
+        <meshBasicMaterial color="#020202" />
       </mesh>
       
       <points>
@@ -152,6 +141,7 @@ function ParticleBody({ palette }: { palette: any }) {
             args={[particles.cols, 3]}
           />
         </bufferGeometry>
+        {/* KEY FIX: toneMapped={false} ensures NEON colors don't wash out to white */}
         <pointsMaterial
           vertexColors
           size={0.035}
@@ -160,6 +150,7 @@ function ParticleBody({ palette }: { palette: any }) {
           sizeAttenuation={true}
           blending={THREE.AdditiveBlending}
           depthWrite={false}
+          toneMapped={false} 
         />
       </points>
     </group>
@@ -167,18 +158,16 @@ function ParticleBody({ palette }: { palette: any }) {
 }
 
 function ParticleRing({ palette }: { palette: any }) {
-  // The thin outer ring seen in the SVG
   const particles = useMemo(() => {
-    const count = 300;
+    const count = 400; // Denser ring
     const pos = new Float32Array(count * 3);
     for(let i=0; i<count; i++) {
         const theta = Math.random() * Math.PI * 2;
-        // Ring radius slightly larger than body
-        const r = 1.1 + (Math.random() * 0.05); 
+        const r = 1.2 + (Math.random() * 0.02); // Thin, distinct ring
         
         pos[i*3] = r * Math.cos(theta);
         pos[i*3+1] = r * Math.sin(theta);
-        pos[i*3+2] = (Math.random() - 0.5) * 0.1; // Flat ring
+        pos[i*3+2] = (Math.random() - 0.5) * 0.05; 
     }
     return pos;
   }, []);
@@ -196,10 +185,11 @@ function ParticleRing({ palette }: { palette: any }) {
         </bufferGeometry>
         <pointsMaterial 
             color={palette.primary} 
-            size={0.02} 
+            size={0.025} 
             transparent 
-            opacity={0.4} 
-            blending={THREE.AdditiveBlending} 
+            opacity={0.6} 
+            blending={THREE.AdditiveBlending}
+            toneMapped={false} 
         />
     </points>
   )
@@ -238,26 +228,26 @@ function ParticleSpikes({ count, palette }: { count: number, palette: any, seed:
 
 function SingleSpikeCloud({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const pCount = 150;
+    const pCount = 200;
     const pos = new Float32Array(pCount * 3);
     
     for(let i=0; i<pCount; i++) {
       const rVal = Math.random();
-      const isHead = rVal > 0.6; // Top 40% is head
+      const isHead = rVal > 0.65;
       
       let x, y, z;
       if (isHead) {
-        // Head: Defined Sphere/Bulb
-        const r = 0.12 * Math.cbrt(Math.random()); 
+        // Head: Dense sphere
+        const r = 0.1 * Math.cbrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         
         x = r * Math.sin(phi) * Math.cos(theta);
-        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5; // Offset to tip
+        y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5;
         z = r * Math.cos(phi);
       } else {
-        // Stalk: Very thin cylinder line
-        const r = 0.02 * Math.sqrt(Math.random()); // Tighter radius for "line" look
+        // Stalk: Ultra thin line
+        const r = 0.015 * Math.sqrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const h = Math.random() * 0.5; 
         
@@ -285,12 +275,13 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
             />
         </bufferGeometry>
         <pointsMaterial 
-          color={palette.primaryGlow} // Use the bright glow color
+          color={palette.glow}
           size={0.03} 
           transparent 
-          opacity={0.9} 
+          opacity={1.0} 
           sizeAttenuation 
           blending={THREE.AdditiveBlending}
+          toneMapped={false}
         />
       </points>
     </group>
@@ -301,11 +292,12 @@ function Atmosphere({ palette }: { palette: any }) {
   return (
     <Sparkles 
       count={40} 
-      scale={3.2} 
+      scale={3.5} 
       size={4} 
-      speed={0.3} 
+      speed={0.2} 
       opacity={0.3} 
       color={palette.primary} 
+      toneMapped={false}
     />
   );
 }
