@@ -3,7 +3,7 @@
 import React, { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { Float, Sparkles } from '@react-three/drei';
+import { Float } from '@react-three/drei';
 import { keccak256, encodePacked } from 'viem';
 
 const ALIGNMENTS = ['Symbiotic', 'Parasitic'] as const;
@@ -91,7 +91,6 @@ function ParticleBody({ palette }: { palette: any }) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
       
-      // Visual Trick: Make the core (center dot) very dense and distinct
       const isCore = Math.random() > 0.92; 
       const r = isCore ? (Math.random() * 0.25) : (0.9 + Math.random() * 0.05);
       
@@ -118,7 +117,6 @@ function ParticleBody({ palette }: { palette: any }) {
 
   return (
     <group>
-      {/* Black sphere to block transparency issues */}
       <mesh>
         <sphereGeometry args={[0.88, 32, 32]} />
         <meshBasicMaterial color="#020202" />
@@ -141,7 +139,6 @@ function ParticleBody({ palette }: { palette: any }) {
             args={[particles.cols, 3]}
           />
         </bufferGeometry>
-        {/* KEY FIX: toneMapped={false} ensures NEON colors don't wash out to white */}
         <pointsMaterial
           vertexColors
           size={0.035}
@@ -159,11 +156,11 @@ function ParticleBody({ palette }: { palette: any }) {
 
 function ParticleRing({ palette }: { palette: any }) {
   const particles = useMemo(() => {
-    const count = 400; // Denser ring
+    const count = 400; 
     const pos = new Float32Array(count * 3);
     for(let i=0; i<count; i++) {
         const theta = Math.random() * Math.PI * 2;
-        const r = 1.2 + (Math.random() * 0.02); // Thin, distinct ring
+        const r = 1.2 + (Math.random() * 0.02); 
         
         pos[i*3] = r * Math.cos(theta);
         pos[i*3+1] = r * Math.sin(theta);
@@ -237,7 +234,7 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
       
       let x, y, z;
       if (isHead) {
-        // Head: Dense sphere
+        // Head
         const r = 0.1 * Math.cbrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
@@ -246,7 +243,7 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
         y = (r * Math.sin(phi) * Math.sin(theta)) + 0.5;
         z = r * Math.cos(phi);
       } else {
-        // Stalk: Ultra thin line
+        // Stalk
         const r = 0.015 * Math.sqrt(Math.random()); 
         const theta = Math.random() * Math.PI * 2;
         const h = Math.random() * 0.5; 
@@ -288,16 +285,43 @@ function SingleSpikeCloud({ palette }: { palette: any }) {
   );
 }
 
+// FIX: Replaced Sparkles with manual points to support toneMapped={false}
 function Atmosphere({ palette }: { palette: any }) {
+  const particles = useMemo(() => {
+    const count = 60;
+    const pos = new Float32Array(count * 3);
+    for(let i=0; i<count; i++) {
+      const r = 2.5 + Math.random() * 2; // Floating well outside
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(2 * Math.random() - 1);
+      
+      pos[i*3] = r * Math.sin(phi) * Math.cos(theta);
+      pos[i*3+1] = r * Math.sin(phi) * Math.sin(theta);
+      pos[i*3+2] = r * Math.cos(phi);
+    }
+    return pos;
+  }, []);
+
   return (
-    <Sparkles 
-      count={40} 
-      scale={3.5} 
-      size={4} 
-      speed={0.2} 
-      opacity={0.3} 
-      color={palette.primary} 
-      toneMapped={false}
-    />
+    <points>
+      <bufferGeometry>
+        <bufferAttribute 
+          attach="attributes-position" 
+          count={particles.length/3} 
+          array={particles} 
+          itemSize={3}
+          args={[particles, 3]}
+        />
+      </bufferGeometry>
+      <pointsMaterial 
+        color={palette.primary} 
+        size={0.05} 
+        transparent 
+        opacity={0.3} 
+        sizeAttenuation 
+        blending={THREE.AdditiveBlending}
+        toneMapped={false}
+      />
+    </points>
   );
 }
