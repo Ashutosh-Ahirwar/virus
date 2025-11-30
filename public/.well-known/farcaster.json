@@ -4,6 +4,9 @@
     "payload": "eyJkb21haW4iOiJ2aXJ1cy1vcmNpbi52ZXJjZWwuYXBwIn0",
     "signature": "clEWNhd63h/5TeYiCUIFneOLaL6HjHtnX3nHlO8mcpJKMy6UMU5zx5H3HCfV6i5S3A/1LndzH9TIc05hu2TbFhs="
   },
+  "baseBuilder": {
+    "ownerAddress": "0xd505989c1d95dEfcaE778475D494F5f51776Fe46"
+  },
   "frame": {
     "name": "Viral Strain",
     "version": "1",
@@ -32,6 +35,7 @@
     "ogTitle": "Viral Strain - Born from FID",
     "ogDescription": "Mint your own viral mutation on Base, generated from your Farcaster FID.",
     "ogImageUrl": "https://virus-orcin.vercel.app/hero.png",
+    "noindex":false,
     "requiredChains": [
       "eip155:8453"
     ],
