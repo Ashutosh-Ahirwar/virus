@@ -44,36 +44,50 @@ export default function ViralStrainApp() {
 
   useEffect(() => {
     const init = async () => {
-      try {
-        const fcContext = await sdk.context;
+    try {
+      // 1. Race the context load against a 1-second timeout
+      // This prevents the app from hanging forever if sdk.context is slow
+      const loadContext = sdk.context;
+      const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 1000));
+      
+      const fcContext: any = await Promise.race([loadContext, timeout]);
+
+      // 2. Handle missing context gracefully (browser testing)
+      if (!fcContext) {
+        console.warn("Farcaster context timed out or missing - falling back to MiniKit/Guest");
+        setUserFid(context?.user?.fid ? Number(context.user.fid) : 0);
+      } else {
         const fid = fcContext.user.fid ?? (context?.user?.fid ?? 0);
         setUserFid(fid);
-
-        const publicClient = createPublicClient({ chain: base, transport: http() });
+        
+        // Only verify contract if we actually have a FID
         if (fid > 0) {
+            const publicClient = createPublicClient({ chain: base, transport: http() });
             const hasMinted = await publicClient.readContract({
-            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
+                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
             });
 
             if (hasMinted) {
-            setStatus('minted');
-            const uri = await publicClient.readContract({
-                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
-            });
-            setNftImageUrl(decodeTokenUri(uri));
+                setStatus('minted');
+                const uri = await publicClient.readContract({
+                    address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+                });
+                setNftImageUrl(decodeTokenUri(uri));
             } else {
-            setStatus('idle');
+                setStatus('idle');
             }
         } else {
             setStatus('idle');
         }
-      } catch (e) {
-        console.error("Init failed", e);
-        setStatus('idle');
-      } finally {
-        sdk.actions.ready();
       }
-    };
+    } catch (e) {
+      console.error("Init failed", e);
+      setStatus('idle');
+    } finally {
+      // 3. FORCE the splash screen to close immediately
+      sdk.actions.ready();
+    }
+  };
     init();
   }, [context]);
 
