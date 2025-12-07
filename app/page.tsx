@@ -2,13 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import sdk from '@farcaster/miniapp-sdk';
-import { createWalletClient, createPublicClient, custom, http, parseEther } from 'viem';
-import { base } from 'viem/chains'; // Using Base Mainnet
+import { 
+  createWalletClient, 
+  createPublicClient, 
+  custom, 
+  http, 
+  parseEther, 
+  encodeFunctionData 
+} from 'viem';
+import { base } from 'viem/chains';
 import Link from 'next/link';
+// CORRECT IMPORT: useMiniKit is now part of onchainkit
+import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-
-// UPDATED PRICE: 0.00069 ETH
 const MINT_PRICE = parseEther('0.00069'); 
 
 const ABI = [
@@ -26,6 +33,9 @@ const decodeTokenUri = (uri: string): string => {
 };
 
 export default function Home() {
+  // Use the hook from OnchainKit to access Base App context
+  const { isFrameReady, context } = useMiniKit(); 
+
   const [status, setStatus] = useState<'loading' | 'idle' | 'minting' | 'success' | 'error' | 'minted'>('loading');
   const [txHash, setTxHash] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -35,23 +45,31 @@ export default function Home() {
   useEffect(() => {
     const init = async () => {
       try {
-        const context = await sdk.context;
-        const fid = context.user.fid ?? 0; 
+        // 1. Initialize Farcaster SDK (Works in Warpcast)
+        const fcContext = await sdk.context;
+        // Priority: Use Farcaster FID if available, otherwise check MiniKit context
+        const fid = fcContext.user.fid ?? (context?.user?.fid ?? 0);
         setUserFid(fid);
 
+        // 2. Check Chain Data
         const publicClient = createPublicClient({ chain: base, transport: http() });
-        const hasMinted = await publicClient.readContract({
-          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
-        });
+        // Only check contract if we have a valid FID
+        if (fid > 0) {
+            const hasMinted = await publicClient.readContract({
+            address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
+            });
 
-        if (hasMinted) {
-          setStatus('minted');
-          const uri = await publicClient.readContract({
-             address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
-          });
-          setNftImageUrl(decodeTokenUri(uri));
+            if (hasMinted) {
+            setStatus('minted');
+            const uri = await publicClient.readContract({
+                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+            });
+            setNftImageUrl(decodeTokenUri(uri));
+            } else {
+            setStatus('idle');
+            }
         } else {
-          setStatus('idle');
+            setStatus('idle');
         }
       } catch (e) {
         console.error("Init failed", e);
@@ -61,7 +79,7 @@ export default function Home() {
       }
     };
     init();
-  }, []);
+  }, [context]);
 
   const handleMint = useCallback(async () => {
     if (status === 'minted') return;
@@ -69,20 +87,34 @@ export default function Home() {
       setStatus('loading');
       setErrorMsg('');
 
-      const provider = await sdk.wallet.getEthereumProvider();
-      if (!provider) throw new Error("No Wallet Found");
-      
-      const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) });
-      const publicClient = createPublicClient({ chain: base, transport: http() });
-      const [address] = await walletClient.requestAddresses();
-      
-      try { await walletClient.switchChain({ id: base.id }); } catch (e) { console.warn("Switch failed", e); }
-
+      // --- AUTHENTICATION & SIGNATURE ---
       const { token } = await sdk.quickAuth.getToken();
       
+      // Determine user address: 
+      let userAddress: string;
+      let provider: any = null;
+
+      // Check if we are in Base App (MiniKit Ready)
+      // Note: We access window.MiniKit safely as a fallback for the bridge
+      const miniKitGlobal = (window as any).MiniKit;
+
+      if (miniKitGlobal?.isInstalled) {
+         // BASE APP MODE
+         const addresses = await miniKitGlobal.commands.getWalletAddress();
+         userAddress = addresses?.[0] || "";
+      } else {
+         // WARPCAST / BROWSER MODE
+         provider = await sdk.wallet.getEthereumProvider();
+         if (!provider) throw new Error("No Wallet Found");
+         const walletClient = createWalletClient({ chain: base, transport: custom(provider as any) });
+         const [address] = await walletClient.requestAddresses();
+         userAddress = address;
+      }
+
+      // API Call
       const response = await fetch('/api/mint', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, userAddress: address })
+        body: JSON.stringify({ token, userAddress })
       });
       
       if (!response.ok) {
@@ -91,23 +123,60 @@ export default function Home() {
       }
 
       const { fid, signature } = await response.json();
-
       setStatus('minting');
-      const hash = await walletClient.writeContract({
-        address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
-        args: [BigInt(fid), signature], 
-        account: address,
-        value: MINT_PRICE 
-      });
 
-      setTxHash(hash);
-      await publicClient.waitForTransactionReceipt({ hash });
+      // --- TRANSACTION LOGIC (Branched) ---
+      
+      if (miniKitGlobal?.isInstalled) {
+        // === BRANCH A: BASE APP (MiniKit Native Bridge) ===
+        const encodedData = encodeFunctionData({
+            abi: ABI,
+            functionName: 'mint',
+            args: [BigInt(fid), signature]
+        });
 
-      const uri = await publicClient.readContract({
-        address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
-      });
-      setNftImageUrl(decodeTokenUri(uri));
-      setStatus('success');
+        // Trigger Native Spending Sheet
+        const txResponse = await miniKitGlobal.commands.sendTransaction({
+            transaction: {
+                to: CONTRACT_ADDRESS,
+                value: parseEther('0.00069').toString(),
+                data: encodedData,
+            }
+        });
+
+        if (txResponse && txResponse.commandId) {
+             setStatus('success');
+             // In Base App, we might not get the hash immediately. 
+             // We assume success and let the user view it later or poll.
+             setTimeout(() => window.location.reload(), 4000); 
+        } else {
+            throw new Error("Transaction disregarded");
+        }
+
+      } else {
+        // === BRANCH B: WARPCAST / STANDARD WEB3 (Viem) ===
+        const walletClient = createWalletClient({ chain: base, transport: custom(provider) });
+        const publicClient = createPublicClient({ chain: base, transport: http() });
+        
+        try { await walletClient.switchChain({ id: base.id }); } catch (e) { console.warn("Switch failed", e); }
+
+        const hash = await walletClient.writeContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
+          args: [BigInt(fid), signature], 
+          account: userAddress as `0x${string}`,
+          value: MINT_PRICE 
+        });
+
+        setTxHash(hash);
+        await publicClient.waitForTransactionReceipt({ hash });
+        
+        // Refresh Data
+        const uri = await publicClient.readContract({
+          address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+        });
+        setNftImageUrl(decodeTokenUri(uri));
+        setStatus('success');
+      }
 
     } catch (e: any) {
       console.error(e);
@@ -116,7 +185,7 @@ export default function Home() {
       setErrorMsg(msg);
       setStatus('error');
     }
-  }, [status]);
+  }, [status, context, userFid]);
 
   const handleBookmark = useCallback(async () => {
       try {
@@ -126,27 +195,16 @@ export default function Home() {
       }
   }, []);
 
-  // --- UPDATED SHARE HANDLER ---
   const handleShare = useCallback(async () => {
     try {
         const shareText = `My identity strand rewrote itself. 🧬\n\nViral Strain #${userFid} is live — generated from the genome of my Farcaster FID.\nDecode yours:`;
-        
-        // Construct the OpenSea URL for this specific NFT
         const openseaUrl = `https://opensea.io/assets/base/${CONTRACT_ADDRESS}/${userFid}`;
-
         await sdk.actions.composeCast({
             text: shareText,
-            // Embed both the App URL (to launch the app) AND the OpenSea URL (to show the image)
-            embeds: [
-                'https://virus-orcin.vercel.app', 
-                openseaUrl
-            ] 
+            embeds: ['https://virus-orcin.vercel.app', openseaUrl] 
         });
-    } catch (e) {
-        console.error("Share failed", e);
-    }
+    } catch (e) { console.error("Share failed", e); }
   }, [userFid]);
-  // -----------------------------
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center bg-black text-white font-mono p-4 pb-12">
@@ -158,12 +216,8 @@ export default function Home() {
       <div className="z-10 max-w-md w-full flex flex-col items-center gap-6">
         
         <div className="w-full flex justify-end">
-            <button 
-                onClick={handleBookmark}
-                className="flex items-center gap-2 px-3 py-1 bg-gray-900/80 border border-white/20 rounded-full text-xs hover:bg-gray-800 transition backdrop-blur-md text-gray-300"
-            >
-                <span>🔖</span>
-                <span>Bookmark</span>
+            <button onClick={handleBookmark} className="flex items-center gap-2 px-3 py-1 bg-gray-900/80 border border-white/20 rounded-full text-xs hover:bg-gray-800 transition backdrop-blur-md text-gray-300">
+                <span>🔖</span><span>Bookmark</span>
             </button>
         </div>
 
@@ -231,33 +285,19 @@ export default function Home() {
                     </div>
 
                     <div className="flex flex-col gap-3">
-                        {/* SHARE BUTTON */}
-                        <button 
-                            onClick={handleShare}
-                            className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white border border-purple-400 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2 animate-pulse"
-                        >
+                        <button onClick={handleShare} className="w-full py-3 bg-purple-600 hover:bg-purple-500 text-white border border-purple-400 rounded-lg transition-all text-sm font-bold flex items-center justify-center gap-2 animate-pulse">
                             <span>📢</span> Share Mutation
                         </button>
 
-                        <a 
-                            href={`https://opensea.io/assets/base/${CONTRACT_ADDRESS}/${userFid}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="block w-full py-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/40 text-blue-300 rounded-lg transition-all text-sm font-bold"
-                        >
+                        <a href={`https://opensea.io/assets/base/${CONTRACT_ADDRESS}/${userFid}`} target="_blank" rel="noreferrer" className="block w-full py-3 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-600/40 text-blue-300 rounded-lg transition-all text-sm font-bold">
                             🌊 View on OpenSea
                         </a>
 
-                        <Link 
-                            href="/view-3d"
-                            className="block w-full py-3 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 rounded-lg transition-all text-sm font-bold text-center flex items-center justify-center gap-2"
-                        >
+                        <Link href="/view-3d" className="block w-full py-3 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-600/40 text-purple-300 rounded-lg transition-all text-sm font-bold text-center flex items-center justify-center gap-2">
                             <span>🧊</span> View Your Strains in 3D
                         </Link>
                          {txHash && (
-                             <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-[10px] text-gray-500 hover:text-white underline">
-                                View on BaseScan
-                             </a>
+                             <a href={`https://basescan.org/tx/${txHash}`} target="_blank" className="text-[10px] text-gray-500 hover:text-white underline">View on BaseScan</a>
                          )}
                     </div>
                 </div>
@@ -269,10 +309,7 @@ export default function Home() {
                     <h3 className="font-bold text-red-400 mb-1">ERROR DETECTED</h3>
                     <p className="text-xs text-red-300">{errorMsg}</p>
                   </div>
-                  <button 
-                    onClick={() => setStatus('idle')}
-                    className="text-sm text-gray-400 hover:text-white underline decoration-gray-600 underline-offset-4"
-                  >
+                  <button onClick={() => setStatus('idle')} className="text-sm text-gray-400 hover:text-white underline decoration-gray-600 underline-offset-4">
                     Reset System
                   </button>
                 </div>
@@ -280,18 +317,11 @@ export default function Home() {
 
               {status === 'idle' && (
                 <div className="space-y-4">
-                    <button
-                        onClick={handleMint}
-                        className="group relative w-full py-4 px-6 bg-green-600 hover:bg-green-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden"
-                    >
+                    <button onClick={handleMint} className="group relative w-full py-4 px-6 bg-green-600 hover:bg-green-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden">
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
-                        <span className="relative flex items-center justify-center gap-2">
-                            MINT STRAIN
-                        </span>
+                        <span className="relative flex items-center justify-center gap-2">MINT STRAIN</span>
                     </button>
-                    <p className="text-xs text-gray-500">
-                        One Virus Per Farcaster ID.
-                    </p>
+                    <p className="text-xs text-gray-500">One Virus Per Farcaster ID.</p>
                 </div>
               )}
             </div>
@@ -301,9 +331,7 @@ export default function Home() {
         {/* Footer */}
         <div className="mt-8 text-center pb-8">
           <div className="h-1 w-16 bg-green-900 mx-auto rounded-full mb-2"></div>
-          <p className="text-[10px] text-gray-600 uppercase tracking-wider">
-            The virus learns faster than we do
-          </p>
+          <p className="text-[10px] text-gray-600 uppercase tracking-wider">The virus learns faster than we do</p>
         </div>
 
       </div>
