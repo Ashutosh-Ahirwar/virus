@@ -20,8 +20,8 @@ const ABI = [
   { name: 'mint', type: 'function', stateMutability: 'payable', inputs: [{ name: 'fid', type: 'uint256' }, { name: 'signature', type: 'bytes' }], outputs: [] },
   { name: 'hasMinted', type: 'function', stateMutability: 'view', inputs: [{ name: 'fid', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
   { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] },
-  // Validates current price from contract to ensure TX success
-  { name: 'price', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] }
+  // FIXED: Changed 'price' to 'mintPrice' to match your Solidity contract
+  { name: 'mintPrice', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] }
 ] as const;
 
 const decodeTokenUri = (uri: string): string => {
@@ -41,8 +41,8 @@ export default function ViralStrainApp() {
   const [userFid, setUserFid] = useState<number>(0);
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
   
-  // State for dynamic price (defaulting to 0.00069)
-  const [mintPrice, setMintPrice] = useState<bigint>(parseEther('0.00069')); 
+  // Default to 0 initially to avoid "insufficient funds" error during the split second before fetch
+  const [mintPrice, setMintPrice] = useState<bigint>(BigInt(0)); 
 
   useEffect(() => {
     const init = async () => {
@@ -60,14 +60,17 @@ export default function ViralStrainApp() {
           
           const publicClient = createPublicClient({ chain: base, transport: http() });
 
-          // 1. Fetch Dynamic Price (Background check)
+          // 1. Fetch Dynamic Price
           try {
+             // FIXED: Using 'mintPrice'
              const price = await publicClient.readContract({
-                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'price' 
+                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mintPrice' 
              });
+             console.log("Fetched Price:", price); // Debug log
              setMintPrice(price as bigint);
           } catch (err) {
-             console.warn("Could not fetch price, using default", err);
+             console.warn("Could not fetch price", err);
+             // If fetch fails, we keep it at 0 or fallback to safe default
           }
 
           // 2. Check if minted
@@ -185,6 +188,10 @@ export default function ViralStrainApp() {
       console.error(e);
       let msg = e.message || "Something went wrong";
       if (msg.includes("User rejected")) msg = "Transaction Cancelled";
+      // Handle the specific "insufficient funds" error nicely
+      if (msg.includes("insufficient funds") || msg.includes("exceeds balance")) {
+          msg = "Insufficient ETH for Gas";
+      }
       setErrorMsg(msg);
       setStatus('error');
     }
