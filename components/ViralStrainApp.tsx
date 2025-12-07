@@ -1,4 +1,3 @@
-// components/ViralStrainApp.tsx
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -16,12 +15,13 @@ import Link from 'next/link';
 import { useMiniKit } from '@coinbase/onchainkit/minikit';
 
 const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
-const MINT_PRICE = parseEther('0.00069'); 
 
 const ABI = [
   { name: 'mint', type: 'function', stateMutability: 'payable', inputs: [{ name: 'fid', type: 'uint256' }, { name: 'signature', type: 'bytes' }], outputs: [] },
   { name: 'hasMinted', type: 'function', stateMutability: 'view', inputs: [{ name: 'fid', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
-  { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] }
+  { name: 'tokenURI', type: 'function', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ name: '', type: 'string' }] },
+  // Validates current price from contract to ensure TX success
+  { name: 'price', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint256' }] }
 ] as const;
 
 const decodeTokenUri = (uri: string): string => {
@@ -32,7 +32,6 @@ const decodeTokenUri = (uri: string): string => {
     } catch (e) { return ""; }
 };
 
-// RENAMED COMPONENT
 export default function ViralStrainApp() {
   const { isFrameReady, context } = useMiniKit(); 
 
@@ -41,53 +40,62 @@ export default function ViralStrainApp() {
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [userFid, setUserFid] = useState<number>(0);
   const [nftImageUrl, setNftImageUrl] = useState<string | null>(null);
+  
+  // State for dynamic price (defaulting to 0.00069)
+  const [mintPrice, setMintPrice] = useState<bigint>(parseEther('0.00069')); 
 
   useEffect(() => {
     const init = async () => {
-    try {
-      // 1. Race the context load against a 1-second timeout
-      // This prevents the app from hanging forever if sdk.context is slow
-      const loadContext = sdk.context;
-      const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 1000));
-      
-      const fcContext: any = await Promise.race([loadContext, timeout]);
+      try {
+        const loadContext = sdk.context;
+        const timeout = new Promise((resolve) => setTimeout(() => resolve(null), 1000));
+        const fcContext: any = await Promise.race([loadContext, timeout]);
 
-      // 2. Handle missing context gracefully (browser testing)
-      if (!fcContext) {
-        console.warn("Farcaster context timed out or missing - falling back to MiniKit/Guest");
-        setUserFid(context?.user?.fid ? Number(context.user.fid) : 0);
-      } else {
-        const fid = fcContext.user.fid ?? (context?.user?.fid ?? 0);
-        setUserFid(fid);
-        
-        // Only verify contract if we actually have a FID
-        if (fid > 0) {
-            const publicClient = createPublicClient({ chain: base, transport: http() });
-            const hasMinted = await publicClient.readContract({
-                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
-            });
-
-            if (hasMinted) {
-                setStatus('minted');
-                const uri = await publicClient.readContract({
-                    address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
-                });
-                setNftImageUrl(decodeTokenUri(uri));
-            } else {
-                setStatus('idle');
-            }
+        if (!fcContext) {
+          console.warn("Farcaster context timed out or missing");
+          setUserFid(context?.user?.fid ? Number(context.user.fid) : 0);
         } else {
-            setStatus('idle');
+          const fid = fcContext.user.fid ?? (context?.user?.fid ?? 0);
+          setUserFid(fid);
+          
+          const publicClient = createPublicClient({ chain: base, transport: http() });
+
+          // 1. Fetch Dynamic Price (Background check)
+          try {
+             const price = await publicClient.readContract({
+                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'price' 
+             });
+             setMintPrice(price as bigint);
+          } catch (err) {
+             console.warn("Could not fetch price, using default", err);
+          }
+
+          // 2. Check if minted
+          if (fid > 0) {
+              const hasMinted = await publicClient.readContract({
+                address: CONTRACT_ADDRESS, abi: ABI, functionName: 'hasMinted', args: [BigInt(fid)]
+              });
+
+              if (hasMinted) {
+                  setStatus('minted');
+                  const uri = await publicClient.readContract({
+                      address: CONTRACT_ADDRESS, abi: ABI, functionName: 'tokenURI', args: [BigInt(fid)]
+                  });
+                  setNftImageUrl(decodeTokenUri(uri));
+              } else {
+                  setStatus('idle');
+              }
+          } else {
+              setStatus('idle');
+          }
         }
+      } catch (e) {
+        console.error("Init failed", e);
+        setStatus('idle');
+      } finally {
+        sdk.actions.ready();
       }
-    } catch (e) {
-      console.error("Init failed", e);
-      setStatus('idle');
-    } finally {
-      // 3. FORCE the splash screen to close immediately
-      sdk.actions.ready();
-    }
-  };
+    };
     init();
   }, [context]);
 
@@ -138,7 +146,7 @@ export default function ViralStrainApp() {
         const txResponse = await miniKitGlobal.commands.sendTransaction({
             transaction: {
                 to: CONTRACT_ADDRESS,
-                value: parseEther('0.00069').toString(),
+                value: mintPrice.toString(), 
                 data: encodedData,
             }
         });
@@ -160,7 +168,7 @@ export default function ViralStrainApp() {
           address: CONTRACT_ADDRESS, abi: ABI, functionName: 'mint',
           args: [BigInt(fid), signature], 
           account: userAddress as `0x${string}`,
-          value: MINT_PRICE 
+          value: mintPrice 
         });
 
         setTxHash(hash);
@@ -180,7 +188,7 @@ export default function ViralStrainApp() {
       setErrorMsg(msg);
       setStatus('error');
     }
-  }, [status, context, userFid]);
+  }, [status, context, userFid, mintPrice]);
 
   const handleBookmark = useCallback(async () => {
       try { await sdk.actions.addMiniApp(); } catch (e) { console.log(e); }
@@ -283,7 +291,9 @@ export default function ViralStrainApp() {
                 <div className="space-y-4">
                     <button onClick={handleMint} className="group relative w-full py-4 px-6 bg-green-600 hover:bg-green-500 text-black font-bold rounded-xl text-lg transition-all active:scale-[0.98] overflow-hidden">
                         <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:animate-shimmer"></div>
-                        <span className="relative flex items-center justify-center gap-2">MINT STRAIN</span>
+                        <span className="relative flex items-center justify-center gap-2">
+                            MINT STRAIN
+                        </span>
                     </button>
                     <p className="text-xs text-gray-500">One Virus Per Farcaster ID.</p>
                 </div>
